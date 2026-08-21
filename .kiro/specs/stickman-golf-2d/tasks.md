@@ -188,7 +188,7 @@ Consequence for this plan: task 1 is no longer a gate to run and has no stop rul
   - Estimate: **20 min**
   - _Requirements: R8.1, R8.2, R8.5, R8.6, R8.8, R8.9, R8.11, R6.9, R4.5_
 
-- [ ] 7. Fixed-step clock separated from the render callback
+- [x] 7. Fixed-step clock separated from the render callback
   - Drive Simulation_Steps from a time source that is not the frame callback, accumulate elapsed time, execute whole steps up to `MAX_CATCHUP_STEPS_PER_FRAME` per pass, retain only the sub-step remainder, and discard the excess rather than carrying it forward. Record the R3.18 discard anomaly.
   - Acceptance: step count per wall-clock second holds at `SIMULATION_HZ` independently of the render rate, and a long stall discards rather than replays.
   - Estimate: **30 min**
