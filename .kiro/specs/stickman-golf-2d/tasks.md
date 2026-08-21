@@ -132,7 +132,7 @@ Consequence for this plan: task 1 is no longer a gate to run and has no stop rul
 
 ## Tasks
 
-- [ ] 1. Read the recorded A-1 finding and confirm the input path being built
+- [x] 1. Read the recorded A-1 finding and confirm the input path being built
   - Read `verification/probe/A1-FINDING.md`. A-1 is resolved and rejected: one Kane CLI agent step carries one keypress. No probe is run and there is no gate here.
   - Confirm, before task 9 starts, that the answer being built is the absolute input path of R7.19 through R7.26 — two DOM number inputs plus document-level capture-phase key interception — and that the control grids are **not** coarsened. `ANGLE_STEP_DEGREES` stays 5, `POWER_STEP_PERCENT` stays 5.
   - Acceptance: the finding has been read and the absolute input path is confirmed as the design task 9 implements.
