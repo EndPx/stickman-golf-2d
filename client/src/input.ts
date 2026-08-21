@@ -98,6 +98,15 @@ export interface InputControllerOptions {
   readonly shotContext: () => ShotContext;
   /** Receives the outcome of every `shoot` invocation, accepted or rejected. */
   readonly onShotResult: (result: ShotResult) => void;
+  /**
+   * Called the instant the held aim angle or power value changes, by any path.
+   *
+   * R7.26 requires the read-only Debug_Overlay field and the number input never to disagree. Without this
+   * the read-only field would only catch up on the next rendered frame, so for about 17 milliseconds after
+   * a keypress or a field write the two would show different numbers - and an agent that writes the aim and
+   * immediately reads `overlay-aim-angle` back would see the old value.
+   */
+  readonly onValueChange: () => void;
 }
 
 export interface InputController {
@@ -119,10 +128,30 @@ export interface InputController {
 }
 
 export function createInputController(options: InputControllerOptions): InputController {
-  const { aimInput, powerInput, shotContext, onShotResult } = options;
+  const { aimInput, powerInput, shotContext, onShotResult, onValueChange } = options;
 
   let aimDegrees = snapAimDegrees(DEFAULT_AIM_DEGREES);
   let powerPercent = snapPowerPercent(DEFAULT_POWER_PERCENT);
+
+  /**
+   * The only writers of the two held values. Everything routes through these so that R7.26's notification
+   * cannot be forgotten at a new call site, and so a write that changes nothing raises no notification.
+   */
+  function setAimDegrees(next: number): void {
+    if (next === aimDegrees) {
+      return;
+    }
+    aimDegrees = next;
+    onValueChange();
+  }
+
+  function setPowerPercent(next: number): void {
+    if (next === powerPercent) {
+      return;
+    }
+    powerPercent = next;
+    onValueChange();
+  }
 
   // The text each field held the last time it was looked at. A field whose text has changed since then
   // was written by something, and that is true whether or not an event was fired.
@@ -201,7 +230,7 @@ export function createInputController(options: InputControllerOptions): InputCon
       aimLastSeenText = aimInput.value;
       return;
     }
-    aimDegrees = snapAimDegrees(parsed);
+    setAimDegrees(snapAimDegrees(parsed));
   }
 
   function adoptPowerText(text: string): void {
@@ -211,7 +240,7 @@ export function createInputController(options: InputControllerOptions): InputCon
       powerLastSeenText = powerInput.value;
       return;
     }
-    powerPercent = snapPowerPercent(parsed);
+    setPowerPercent(snapPowerPercent(parsed));
   }
 
   /**
@@ -242,7 +271,7 @@ export function createInputController(options: InputControllerOptions): InputCon
    * axis, so counter-clockwise is left on screen and increasing in degrees.
    */
   function stepAim(deltaDegrees: number): void {
-    aimDegrees = snapAimDegrees(aimDegrees + deltaDegrees);
+    setAimDegrees(snapAimDegrees(aimDegrees + deltaDegrees));
     // A relative adjustment supersedes whatever the field holds, so its text is rewritten even while it
     // has focus. Arrow keys are intercepted before the field ever sees them, so a user pressing an arrow
     // is asking for the aim to move, not editing text.
@@ -252,7 +281,7 @@ export function createInputController(options: InputControllerOptions): InputCon
 
   /** R7.3, R7.4, R7.7, R7.8 - step and clamp, with no rejection at either end. */
   function stepPower(deltaPercent: number): void {
-    powerPercent = snapPowerPercent(powerPercent + deltaPercent);
+    setPowerPercent(snapPowerPercent(powerPercent + deltaPercent));
     powerInput.value = renderPower();
     writeFieldText();
   }
@@ -348,8 +377,8 @@ export function createInputController(options: InputControllerOptions): InputCon
     powerPercent: () => powerPercent,
 
     resetToDefaults(): void {
-      aimDegrees = snapAimDegrees(DEFAULT_AIM_DEGREES);
-      powerPercent = snapPowerPercent(DEFAULT_POWER_PERCENT);
+      setAimDegrees(snapAimDegrees(DEFAULT_AIM_DEGREES));
+      setPowerPercent(snapPowerPercent(DEFAULT_POWER_PERCENT));
       aimInput.value = renderAim();
       powerInput.value = renderPower();
       writeFieldText();

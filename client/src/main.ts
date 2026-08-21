@@ -1,15 +1,30 @@
 // Game_Client entry point.
 //
-// Built up task by task. Task 8 wired the Renderer, task 9 the Input_Controller, task 10 the
-// Debug_Overlay. Task 11 replaces the static state below with the real Arena 1 loop driven by the clock,
-// the Physics_Engine and the Shot_Controller, and adds the start-arena selector.
+// This is where the six pieces meet: the fixed-step clock, the Physics_Engine, the Shot_Controller, the
+// Input_Controller, the Renderer and the Debug_Overlay. Everything above it is pure or DOM-only; this
+// module owns the wiring, the browser interfaces and the single piece of mutable state.
+//
+// R3.17 is visible in the shape of it. There are two loops, not one: Simulation_Steps run on the clock's own
+// repeating timer and drawing runs on the frame callback, so neither can change the other's rate.
 
-import { getArena } from '../../shared/arenas.ts';
-import { createArenaCollision, createBallAtRest } from '../../shared/physics.ts';
-import type { ShotContext, ShotResult } from '../../shared/shot.ts';
-import { createRenderer, type RenderState } from './renderer.ts';
+import { isInMotion } from '../../shared/physics.ts';
+import { createFixedStepClock } from './clock.ts';
+import { createRenderer } from './renderer.ts';
 import { createInputController } from './input.ts';
-import { createOverlay, type LastRejection, type OverlayState } from './overlay.ts';
+import { createOverlay } from './overlay.ts';
+import {
+  anomalyCount,
+  applyShotResult,
+  createMatch,
+  prepareShot,
+  stepMatch,
+  strokesByArenaForDisplay,
+  withDiscardAnomaly,
+  type MatchState,
+} from './game.ts';
+
+/** R1.25 - the start-arena selector, read from the query string at load time. */
+const START_ARENA_PARAMETER = 'arena';
 
 function requireElement(selector: string): HTMLElement {
   const element = document.querySelector(selector);
@@ -23,60 +38,112 @@ export function main(): void {
   const renderer = createRenderer(requireElement('#playfield-root'));
   const overlay = createOverlay(requireElement('#overlay-root'));
 
-  // TASK 10 PREVIEW STATE. Replaced by the real Arena 1 loop in task 11, which brings the Status_Token
-  // machine, stroke accounting, the anomaly counter and the start-arena selector with it.
-  const arena = getArena(1);
-  const collision = createArenaCollision(arena);
-  let ball = createBallAtRest(arena.spawn);
-  let lastRejection: LastRejection = 'NONE';
+  // R1.25, R1.26 - resolved before anything renders, so the first frame already shows the chosen Arena and
+  // the anomaly count a refused value produced.
+  const selector = new URLSearchParams(window.location.search).get(START_ARENA_PARAMETER);
+  let match: MatchState = createMatch(selector);
+
+  /**
+   * Pushes the current Match state into the Debug_Overlay.
+   *
+   * Called from the frame loop, and called again **synchronously** the instant a Shot result is applied.
+   * R9.14 allows a one-rendered-frame lag, and that lag is a trap for an external verifier: for the ~17
+   * milliseconds between the space press and the next frame the DOM would still read `BALL_AT_REST`, so a
+   * flow that fires and then immediately polls the Status_Token would exit its poll on the stale value and
+   * spend an Agent_Step discovering the mistake. Rendering on the transition closes the window entirely.
+   */
+  function renderOverlay(): void {
+    overlay.render({
+      arenaNumber: match.arenaNumber,
+      p1Strokes: match.strokes,
+      p1Total: match.runningTotal,
+      p1StrokesByArena: strokesByArenaForDisplay(match),
+      aimDegrees: input.aimDegrees(),
+      powerPercent: input.powerPercent(),
+      status: match.status,
+      matchPhase: match.matchPhase,
+      p1HoleOut: match.holeOut,
+      lastRejection: match.lastRejection,
+      anomalyCount: anomalyCount(match),
+      result: match.result,
+    });
+  }
 
   const input = createInputController({
     aimInput: overlay.aimInput,
     powerInput: overlay.powerInput,
-    // Task 11 supplies the real precondition, derived from the Status_Token machine.
-    shotContext: (): ShotContext => ({ collision, ball, precondition: null }),
-    onShotResult: (result: ShotResult): void => {
-      if (result.accepted) {
-        ball = result.ball;
-        // R9.22 - the rejection field returns to NONE when a Shot is accepted.
-        lastRejection = 'NONE';
-      } else {
-        lastRejection = result.reason;
-      }
+    shotContext: () => {
+      // Acknowledging a held IN_HOLE or OUT_OF_BOUNDS token is a state transition, so the state it returns
+      // has to be kept rather than discarded.
+      const prepared = prepareShot(match);
+      match = prepared.state;
+      return prepared.context;
+    },
+    onShotResult: (result) => {
+      match = applyShotResult(match, result);
+      // R5.18 - the token reads BALL_MOVING before the next rendered frame. Written to the DOM here rather
+      // than on that frame, so no reader can observe the pre-Shot value after the Shot was accepted.
+      renderOverlay();
+    },
+    // R7.26 - the read-only aim and power fields follow their number inputs immediately rather than on the
+    // next frame, so the two never disagree even for a reader that writes and reads back in one breath.
+    onValueChange: () => {
+      renderOverlay();
     },
   });
 
-  // R14.9 - the Renderer's frame rate is decoupled from SIMULATION_HZ, so drawing runs on the frame
-  // callback while the simulation runs on its own time source (R3.17, task 7).
+  // R3.2, R3.17 - Simulation_Steps on a time source that is not the frame callback.
+  const clock = createFixedStepClock({
+    environment: {
+      now: () => performance.now(),
+      scheduleRepeating: (callback, periodMilliseconds) => {
+        const handle = window.setInterval(callback, periodMilliseconds);
+        return () => {
+          window.clearInterval(handle);
+        };
+      },
+    },
+    onStep: () => {
+      // A Ball that is not in motion cannot change. The engine returns it untouched either way; this only
+      // avoids the call.
+      if (!isInMotion(match.ball)) {
+        return;
+      }
+      const stepped = stepMatch(match);
+      match = stepped.state;
+      if (stepped.shotCompleted) {
+        // R7.9, R7.10 - the Match reports the step a Shot completed on; the Input_Controller owns the
+        // values, so it performs the reset.
+        input.resetToDefaults();
+        // And the terminal Status_Token reaches the DOM on the step it is set rather than on the next frame,
+        // for the same reason the launch transition does.
+        renderOverlay();
+      }
+    },
+    // R3.18 - a suspended or throttled tab loses simulated time rather than replaying it, and the loss is
+    // recorded as an anomaly naming the discarded Simulation_Step count.
+    onDiscard: (discardedSteps) => {
+      match = withDiscardAnomaly(match, discardedSteps);
+    },
+  });
+  clock.start();
+
+  // R14.9 - drawing is decoupled from SIMULATION_HZ and draws the most recently completed Simulation_Step
+  // with no interpolation and no extrapolation.
   function frame(): void {
-    // R7.20 - reconciles a value written to either number input by any means, including a write that
-    // fired no event at all.
+    // R7.20 - reconciles a value written to either number input by any means, including a write that fired
+    // no event at all. Done before anything reads the values.
     input.refresh();
+    renderOverlay();
 
-    const overlayState: OverlayState = {
-      arenaNumber: arena.number,
-      p1Strokes: 0,
-      p1Total: 0,
-      p1StrokesByArena: new Map(),
+    renderer.render({
+      arena: match.collision.arena,
+      ballPosition: match.ball.position,
       aimDegrees: input.aimDegrees(),
       powerPercent: input.powerPercent(),
-      status: 'BALL_AT_REST',
-      matchPhase: 'IN_PROGRESS',
-      p1HoleOut: 'NOT_HOLED_OUT',
-      lastRejection,
-      anomalyCount: 0,
-      result: null,
-    };
-    overlay.render(overlayState);
-
-    const renderState: RenderState = {
-      arena,
-      ballPosition: ball.position,
-      aimDegrees: input.aimDegrees(),
-      powerPercent: input.powerPercent(),
+      // R14.5, R14.11 - the sole Player is always the Active_Player (R1.4).
       isActivePlayer: true,
-    };
-    renderer.render(renderState);
+    });
 
     window.requestAnimationFrame(frame);
   }
