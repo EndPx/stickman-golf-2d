@@ -194,7 +194,7 @@ Consequence for this plan: task 1 is no longer a gate to run and has no stop rul
   - Estimate: **30 min**
   - _Requirements: R3.2, R3.3, R3.17, R3.18, R14.9_
 
-- [ ] 8. Renderer and the visual constants module
+- [x] 8. Renderer and the visual constants module
   - Three.js orthographic camera, single plane, framed so the whole Playfield is visible at equal world units per pixel on both axes with surplus viewport area falling outside the Playfield bounds. Draw Playfield bounds, walls, obstacles, Hole, the Ball, the outside-Playfield area, the aim indicator at `AIM_INDICATOR_MIN_LENGTH` or longer, the power indicator with strictly increasing extent, and the current Arena's Par. All geometry derived from the Arena_Registry with no inline literal.
   - Create the simplified visual constants module: named colour and size constants read by key, per the R16 simplification. Append the corresponding entries to `docs/asset-requests.md` before recording this task complete.
   - Draw at the most recently completed Simulation_Step with no interpolation and no extrapolation; hold a stopped Ball's drawn position until the next shot.

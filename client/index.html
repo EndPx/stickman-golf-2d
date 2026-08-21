@@ -6,6 +6,38 @@
     <title>Stickman Golf 2D</title>
     <!-- Empty inline icon. Suppresses the /favicon.ico 404 so the console stays clean for runs. -->
     <link rel="icon" href="data:," />
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background: #0b0e11;
+        color: #e8edf2;
+        font: 14px/1.5 system-ui, sans-serif;
+      }
+
+      /*
+        The Renderer frames the whole Playfield inside whatever box it is given and shows the surplus as
+        the outside-Playfield fill (R14.3), so this box does not have to match the Playfield aspect ratio.
+        It is given the Playfield ratio anyway, because surplus is wasted screen rather than a feature.
+      */
+      #playfield-root {
+        display: block;
+        width: 100%;
+        aspect-ratio: 1000 / 600;
+        max-height: 72vh;
+      }
+
+      #playfield-root canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+      }
+    </style>
   </head>
   <body>
     <!--
