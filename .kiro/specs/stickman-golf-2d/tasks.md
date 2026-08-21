@@ -165,7 +165,7 @@ Consequence for this plan: task 1 is no longer a gate to run and has no stop rul
   - _Requirements: R2.1–R2.8, R2.12, R2.13, R2.15, R2.16, R2.18, R2.19, R6.6_
 
 - [ ] 5. Physics_Engine
-  - [ ] 5.1 Step order, integration, friction, and contact resolution
+  - [x] 5.1 Step order, integration, friction, and contact resolution
     - Implement `step()` advancing exactly one Simulation_Step in the R3.14 operation order, operation 1 omitted with the Moving_Obstacle. Multiply velocity by `FRICTION_PER_STEP` once before integration, displace by the post-friction velocity times `FIXED_STEP_SECONDS`, then resolve contact by testing centre-to-surface distance against `BALL_RADIUS` at the integrated position — one test per step, no sub-stepping and no swept test for surfaces.
     - Reflect the perpendicular component with `WALL_RESTITUTION`, preserve the parallel component, depenetrate along the outward normal to within `MAX_PENETRATION_TOLERANCE`. Handle multi-surface overlap in Arena_Registry declaration order, skipping surfaces the velocity points away from. Implement the R3.16 residual-overlap bail-out.
     - Advance only by a caller-supplied step count and read no wall-clock time source. Import neither Three.js nor any transport library.
