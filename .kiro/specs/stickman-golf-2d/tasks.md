@@ -164,7 +164,7 @@ Consequence for this plan: task 1 is no longer a gate to run and has no stop rul
   - Estimate: **60 min**
   - _Requirements: R2.1–R2.8, R2.12, R2.13, R2.15, R2.16, R2.18, R2.19, R6.6_
 
-- [ ] 5. Physics_Engine
+- [x] 5. Physics_Engine
   - [x] 5.1 Step order, integration, friction, and contact resolution
     - Implement `step()` advancing exactly one Simulation_Step in the R3.14 operation order, operation 1 omitted with the Moving_Obstacle. Multiply velocity by `FRICTION_PER_STEP` once before integration, displace by the post-friction velocity times `FIXED_STEP_SECONDS`, then resolve contact by testing centre-to-surface distance against `BALL_RADIUS` at the integrated position — one test per step, no sub-stepping and no swept test for surfaces.
     - Reflect the perpendicular component with `WALL_RESTITUTION`, preserve the parallel component, depenetrate along the outward normal to within `MAX_PENETRATION_TOLERANCE`. Handle multi-surface overlap in Arena_Registry declaration order, skipping surfaces the velocity points away from. Implement the R3.16 residual-overlap bail-out.
@@ -172,7 +172,7 @@ Consequence for this plan: task 1 is no longer a gate to run and has no stop rul
     - Acceptance: a Ball fired into a walled corner reflects twice and its overlap after every step stays within `MAX_PENETRATION_TOLERANCE`.
     - Estimate: **75 min**
     - _Requirements: R3.1, R3.4–R3.8, R3.12, R3.13, R3.14 (operations 2–4), R3.15, R3.16, R6.7, R6.8, R17.5, R17.9_
-  - [ ] 5.2 Terminal outcomes — rest debounce, Hole capture, out of bounds, duration valve
+  - [x] 5.2 Terminal outcomes — rest debounce, Hole capture, out of bounds, duration valve
     - Rest debounce: track consecutive sub-threshold steps, reset on any step at or above `REST_SPEED_THRESHOLD`, and zero the velocity on both axes on the step the count reaches `REST_DEBOUNCE_STEPS`.
     - Hole capture: test the path traced across the step, including any reflection segment, against `HOLE_RADIUS` with end-of-step speed below `HOLE_CAPTURE_MAX_SPEED`; on capture, zero velocity and hold the centre at the Hole centre. Capture outranks out of bounds within a step.
     - Out of bounds: centre strictly outside the Playfield rectangle at end of step, direction-independent, edge-inclusive as inside. Reset places the Ball at the recorded pre-shot position, not the spawn point.

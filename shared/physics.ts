@@ -12,22 +12,26 @@
 //
 // R3.12: a Ball's contact detection sees walls, obstacles and walled Playfield edges, and never
 // another Ball. That holds by construction, because `step` is given one Ball and cannot see any other.
-//
-// TASK 5.2 completes this module with R3.14 operations 5 through 7 - Hole capture, out of bounds and
-// the rest-debounce counter - plus the `MAX_SHOT_DURATION_SECONDS` valve. Operations 2, 3 and 4,
-// multi-surface ordering and the residual-overlap bail-out are implemented here.
 
 import {
   BALL_RADIUS,
   FIXED_STEP_SECONDS,
   FRICTION_PER_STEP,
+  HOLE_CAPTURE_MAX_SPEED,
+  HOLE_RADIUS,
   MAX_PENETRATION_TOLERANCE,
+  MAX_SHOT_DURATION_STEPS,
   PLAYFIELD_WIDTH,
+  REST_DEBOUNCE_STEPS,
+  REST_SPEED_THRESHOLD,
   WALL_RESTITUTION,
 } from './constants.ts';
 import { PLAYFIELD_BOUNDS, type ArenaDefinition } from './arenas.ts';
 import {
+  distanceBetweenPoints,
   distanceFromPointToRectangle,
+  distanceFromPointToSegment,
+  isPointInsideRectangle,
   rectangleOutwardNormal,
   type Rectangle,
   type Vector2,
@@ -51,6 +55,12 @@ export interface BallState {
   readonly subThresholdSteps: number;
   /** Simulation_Steps elapsed since the Shot_Controller imparted velocity, for the R5.11 valve. */
   readonly stepsSinceLaunch: number;
+  /**
+   * R6.5, R8.6 - where the Ball sat immediately before launch velocity was imparted. The
+   * Shot_Controller records it (task 6); the engine reads it when a Ball goes out of bounds, because
+   * R6.5 resets to this position and explicitly **not** to the Arena's declared spawn point.
+   */
+  readonly preShotPosition: Vector2;
   readonly outcome: BallOutcome;
 }
 
@@ -61,6 +71,7 @@ export function createBallAtRest(position: Vector2): BallState {
     velocity: { x: 0, y: 0 },
     subThresholdSteps: 0,
     stepsSinceLaunch: 0,
+    preShotPosition: position,
     outcome: 'AT_REST',
   };
 }
@@ -202,14 +213,56 @@ export interface StepOutcome {
    */
   readonly residualOverlapAnomaly: boolean;
   /**
+   * R5.11 fired: the Ball was still in motion after `MAX_SHOT_DURATION_SECONDS` of simulated time, so
+   * the safety valve stopped it. The Game_Client records an anomaly naming the Arena, the Player, the
+   * aim angle and the power value.
+   */
+  readonly shotDurationAnomaly: boolean;
+  /**
    * The path the Ball's centre traced across this step, as one or more segments, including any
-   * segment contact resolution introduced. R6.1's Hole capture test runs against this in task 5.2.
+   * segment contact resolution introduced. This is what R6.1's Hole capture test runs against.
    */
   readonly pathSegments: readonly (readonly [Vector2, Vector2])[];
 }
 
 function addScaled(point: Vector2, direction: Vector2, scale: number): Vector2 {
   return { x: point.x + direction.x * scale, y: point.y + direction.y * scale };
+}
+
+const ZERO_VELOCITY: Vector2 = { x: 0, y: 0 };
+
+/**
+ * R6.1 - the Hole capture condition, as a path test rather than an endpoint test.
+ *
+ * The shortest distance from the Hole centre to the path the Ball's centre traced across the step,
+ * including any segment a reflection within that step introduced, must be at or below `HOLE_RADIUS`,
+ * and the end-of-step speed must be strictly below `HOLE_CAPTURE_MAX_SPEED`.
+ *
+ * The path test is the one place the project departs from R3.8's endpoint-only rule, and Requirement 6
+ * records why: walls carry `MIN_WALL_THICKNESS` of margin behind them so a missed sample still gets
+ * caught next step, while the Hole carries none, and a missed sample there is a capture the Player
+ * earned and did not get.
+ */
+function isHoleCaptureSatisfied(
+  holeCentre: Vector2,
+  pathSegments: readonly (readonly [Vector2, Vector2])[],
+  endOfStepSpeed: number,
+): boolean {
+  if (endOfStepSpeed >= HOLE_CAPTURE_MAX_SPEED) {
+    return false;
+  }
+  return pathSegments.some(
+    ([from, to]) => distanceFromPointToSegment(holeCentre, from, to) <= HOLE_RADIUS,
+  );
+}
+
+/**
+ * R6.4 - the out-of-bounds condition. The Ball's centre lies strictly outside the Playfield rectangle,
+ * irrespective of direction of travel and speed, with a centre lying exactly on an edge counted as
+ * inside.
+ */
+function isOutOfBounds(position: Vector2): boolean {
+  return !isPointInsideRectangle(position, PLAYFIELD_BOUNDS);
 }
 
 /**
@@ -223,7 +276,15 @@ function addScaled(point: Vector2, direction: Vector2, scale: number): Vector2 {
  *   3. displace by the velocity operation 2 left, times `FIXED_STEP_SECONDS` (R3.4);
  *   4. resolve contact against every Collision_Surface overlapped at the position operation 3 left
  *      (R3.6, R3.7, R3.8, R3.15), then apply the R3.16 bail-out;
- *   5-7. Hole capture, out of bounds and the rest-debounce counter - **task 5.2**.
+ *   5. evaluate Hole capture against the path and the speed operation 4 left (R6.1);
+ *   6. evaluate out of bounds against the position operation 4 left (R6.4);
+ *   7. advance the rest-debounce counter against the speed operation 4 left, and zero the velocity on
+ *      the step that completes it (R5.6, R5.8).
+ *
+ * Two precedence rules fall out of that order and are load-bearing. Hole capture is evaluated before
+ * out of bounds, so a Ball satisfying both in one step is holed rather than lost. And a Ball whose
+ * capture or out-of-bounds condition is satisfied skips every remaining operation of the step, so a
+ * captured Ball never touches the debounce counter.
  *
  * A Ball that is not in motion is returned untouched, per R3.14's definition of a Ball in motion.
  */
@@ -233,6 +294,7 @@ export function step(collision: ArenaCollision, ball: BallState): StepOutcome {
       ball,
       reflectionCount: 0,
       residualOverlapAnomaly: false,
+      shotDurationAnomaly: false,
       pathSegments: [],
     };
   }
@@ -310,30 +372,135 @@ export function step(collision: ArenaCollision, ball: BallState): StepOutcome {
   );
 
   if (residualOverlap) {
+    // R3.16 zeroes the velocity, which makes the Ball not in motion, so no later step would ever
+    // process it again. The rest-debounce counter is therefore completed here rather than left
+    // part-way: a zero-speed Ball is trivially below `REST_SPEED_THRESHOLD`, so treating the debounce
+    // as satisfied on this step keeps the resulting Status_Token transition on R5.16's declared
+    // `BALL_MOVING` to `BALL_AT_REST` rest-debounce edge. Leaving the counter part-way would strand the
+    // token at `BALL_MOVING` until the R5.11 valve fired 15 simulated seconds later, which R5.12's
+    // bound permits and no player would forgive.
     return {
       ball: {
         ...ball,
         position: stepStartPosition,
-        velocity: { x: 0, y: 0 },
+        velocity: ZERO_VELOCITY,
+        subThresholdSteps: REST_DEBOUNCE_STEPS,
         stepsSinceLaunch: ball.stepsSinceLaunch + 1,
+        outcome: 'AT_REST',
       },
       reflectionCount,
       residualOverlapAnomaly: true,
+      shotDurationAnomaly: false,
       pathSegments,
     };
   }
 
-  // Operations 5 through 7 land here in task 5.2. Until then the step reports position and velocity
-  // only, and the caller owns every terminal outcome.
+  const endOfStepSpeed = Math.sqrt(velocity.x * velocity.x + velocity.y * velocity.y);
+  const stepsSinceLaunch = ball.stepsSinceLaunch + 1;
+
+  // -- operation 5: Hole capture --------------------------------------------------------------
+  //
+  // Ahead of out of bounds, so a Ball that drops in as it crosses an open edge is holed. On capture the
+  // velocity goes to exactly zero and the centre is held at the Hole centre until the Match advances.
+  if (isHoleCaptureSatisfied(collision.arena.hole, pathSegments, endOfStepSpeed)) {
+    return {
+      ball: {
+        ...ball,
+        position: collision.arena.hole,
+        velocity: ZERO_VELOCITY,
+        stepsSinceLaunch,
+        outcome: 'HOLED',
+      },
+      reflectionCount,
+      residualOverlapAnomaly: false,
+      shotDurationAnomaly: false,
+      pathSegments,
+    };
+  }
+
+  // -- operation 6: out of bounds -------------------------------------------------------------
+  //
+  // R6.5 resets to the recorded pre-shot position, not to the Arena's declared spawn point. The Stroke
+  // already counted for this Shot is retained, which is the Score_Keeper's business (R13.2).
+  if (isOutOfBounds(position)) {
+    return {
+      ball: {
+        ...ball,
+        position: ball.preShotPosition,
+        velocity: ZERO_VELOCITY,
+        stepsSinceLaunch,
+        outcome: 'OUT_OF_BOUNDS',
+      },
+      reflectionCount,
+      residualOverlapAnomaly: false,
+      shotDurationAnomaly: false,
+      pathSegments,
+    };
+  }
+
+  // -- operation 7: rest debounce -------------------------------------------------------------
+  //
+  // R3.14 operation 7 only counts. R5.6 is what zeroes the velocity, and only on the step the count
+  // reaches `REST_DEBOUNCE_STEPS`, so a Ball that dips below the threshold and recovers keeps rolling
+  // with its velocity intact (R5.8).
+  const subThresholdSteps =
+    endOfStepSpeed < REST_SPEED_THRESHOLD ? ball.subThresholdSteps + 1 : 0;
+
+  if (subThresholdSteps >= REST_DEBOUNCE_STEPS) {
+    return {
+      ball: {
+        ...ball,
+        position,
+        velocity: ZERO_VELOCITY,
+        subThresholdSteps,
+        stepsSinceLaunch,
+        outcome: 'AT_REST',
+      },
+      reflectionCount,
+      residualOverlapAnomaly: false,
+      shotDurationAnomaly: false,
+      pathSegments,
+    };
+  }
+
+  // -- R5.11, R4.12: the maximum-shot-duration safety valve ------------------------------------
+  //
+  // Measured in simulated time, as `MAX_SHOT_DURATION_STEPS` Simulation_Steps since launch, never in
+  // wall-clock time. The Ball stops where it is, and the Hole capture condition is re-evaluated
+  // against that stopped position - a point test, since a stopped Ball is trivially under
+  // `HOLE_CAPTURE_MAX_SPEED`. That re-evaluation is reachable only when the valve stops a Ball
+  // overlapping the Hole at or above the capture speed, and it exists so the valve cannot strand a
+  // Ball sitting in the Hole while the overlay reads `BALL_AT_REST`.
+  if (stepsSinceLaunch >= MAX_SHOT_DURATION_STEPS) {
+    const stoppedInHole = distanceBetweenPoints(position, collision.arena.hole) <= HOLE_RADIUS;
+    return {
+      ball: {
+        ...ball,
+        position: stoppedInHole ? collision.arena.hole : position,
+        velocity: ZERO_VELOCITY,
+        subThresholdSteps,
+        stepsSinceLaunch,
+        outcome: stoppedInHole ? 'HOLED' : 'AT_REST',
+      },
+      reflectionCount,
+      residualOverlapAnomaly: false,
+      shotDurationAnomaly: true,
+      pathSegments,
+    };
+  }
+
   return {
     ball: {
       ...ball,
       position,
       velocity,
-      stepsSinceLaunch: ball.stepsSinceLaunch + 1,
+      subThresholdSteps,
+      stepsSinceLaunch,
+      outcome: 'IN_MOTION',
     },
     reflectionCount,
     residualOverlapAnomaly: false,
+    shotDurationAnomaly: false,
     pathSegments,
   };
 }
@@ -341,13 +508,20 @@ export function step(collision: ArenaCollision, ball: BallState): StepOutcome {
 /** The result of advancing a caller-supplied number of Simulation_Steps. */
 export interface AdvanceOutcome {
   readonly ball: BallState;
+  /** Steps that actually did work. Steps after the Ball stopped are no-ops and are not counted. */
   readonly stepsExecuted: number;
   readonly reflectionCount: number;
+  /** R10.15 - anomalies the Game_Client adds to `overlay-anomaly-count`. */
   readonly residualOverlapAnomalyCount: number;
+  readonly shotDurationAnomalyCount: number;
 }
 
 /**
- * Advances exactly `steps` Simulation_Steps.
+ * Advances up to `steps` Simulation_Steps, stopping early once the Ball is no longer in motion.
+ *
+ * Stopping early changes nothing: a step on a Ball whose velocity is exactly zero returns that Ball
+ * untouched and does not advance `stepsSinceLaunch`, so the resulting state is identical to running the
+ * full count. It matters only for speed, and task 14's grid search runs this a few million times.
  *
  * R3.1 and R3.17: the engine is advanced only by a caller-supplied step count and reads no wall-clock
  * time source of its own. The clock that decides how many steps to ask for lives in the Game_Client
@@ -357,17 +531,40 @@ export function advance(collision: ArenaCollision, ball: BallState, steps: numbe
   let current = ball;
   let reflectionCount = 0;
   let residualOverlapAnomalyCount = 0;
+  let shotDurationAnomalyCount = 0;
   let stepsExecuted = 0;
 
   for (let index = 0; index < steps; index += 1) {
+    if (!isInMotion(current)) {
+      break;
+    }
     const outcome = step(collision, current);
     current = outcome.ball;
     reflectionCount += outcome.reflectionCount;
     residualOverlapAnomalyCount += outcome.residualOverlapAnomaly ? 1 : 0;
+    shotDurationAnomalyCount += outcome.shotDurationAnomaly ? 1 : 0;
     stepsExecuted += 1;
   }
 
-  return { ball: current, stepsExecuted, reflectionCount, residualOverlapAnomalyCount };
+  return {
+    ball: current,
+    stepsExecuted,
+    reflectionCount,
+    residualOverlapAnomalyCount,
+    shotDurationAnomalyCount,
+  };
+}
+
+/**
+ * Runs a Shot to its terminal outcome, bounded by the `MAX_SHOT_DURATION_SECONDS` valve.
+ *
+ * R5.12 guarantees every accepted Shot reaches `BALL_AT_REST`, `IN_HOLE` or `OUT_OF_BOUNDS` within that
+ * bound, so `MAX_SHOT_DURATION_STEPS` plus one is enough to reach it - the extra step is the one on
+ * which the valve itself fires. Used by playtests and by task 14's grid search, never by the running
+ * Game_Client, which advances the simulation from its own clock so the Ball is drawn while it rolls.
+ */
+export function simulateShotToRest(collision: ArenaCollision, ball: BallState): AdvanceOutcome {
+  return advance(collision, ball, MAX_SHOT_DURATION_STEPS + 1);
 }
 
 /**
