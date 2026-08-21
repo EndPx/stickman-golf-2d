@@ -1,0 +1,43 @@
+﻿node.exe : 
+At C:\Users\abaym\AppData\Roaming\npm\kane-cli.ps1:24 char:5
++     & "node$exe"  "$basedir/node_modules/@testmuai/kane-cli/bin/kane- ...
++     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+Update available: 0.8.4 ÔåÆ 0.8.5 ÔÇö run `npm install -g @testmuai/kane-cli@latest` to update
+
+Skill update available: not installed ÔåÆ 0.0.17 ÔÇö run `kane-cli install skill`
+
+{"type":"recording_state","enabled":true,"session_id":"3ba6be1f-859e-47dc-9857-62c00d2ffaa3","persist":false}
+Running on: Desktop ┬À Chrome
+{"type":"update_available","current":"0.8.4","latest":"0.8.5","severity":"patch"}
+{"type":"skill_update_available","current":null,"latest":"0.0.17","install_cmd":"kane-cli install skill"}
+{"type":"bifurcation","flows":["Navigate to http://localhost:4173 then in ONE single keyboard action without pausing, send the key sequence ArrowLeft ArrowLeft ArrowLeft ArrowLeft ArrowLeft ArrowLeft (six consecutive ArrowLeft presses dispatched together as a single batched action, not six separate actions).\nThen read and report the text content of data-testid probe-keydown-count, probe-burst-count, probe-max-burst, probe-gaps and overlay-aim-angle.\nGet the text content of data-testid probe-keydown-count and save it as {{answer}}.\nGet the text content of data-testid probe-burst-count and save it as {{answer_2}}.\nGet the text content of data-testid probe-max-burst and save it as {{answer_3}}.\nGet the text content of data-testid probe-gaps and save it as {{answer_4}}.\nGet the text content of data-testid overlay-aim-angle and save it as {{answer_5}}."],"count":1}
+{"step":2,"status":"running","remark":"Step 1"}
+{"step":2,"status":"done","remark":"navigate: Navigate to http://localhost:4173"}
+{"step":3,"status":"running","remark":"Step 2"}
+{"step":3,"status":"done","remark":"press_key: PRIMARY: press the ArrowLeft key six times in one single batched keyboard action"}
+{"step":4,"status":"running","remark":"Step 3"}
+{"step":4,"status":"done","remark":"click: PRIMARY: click the probe page surface to focus keyboard input | HINTS: position="}
+{"step":5,"status":"running","remark":"Step 4"}
+{"step":5,"status":"done","remark":"press_key: PRIMARY: press the ArrowLeft key six times in one single batched keyboard action"}
+{"step":6,"status":"running","remark":"Step 5"}
+{"step":6,"status":"done","remark":"wait: queued plan (6 steps): press_key \"A-1 Probe\"; press_key \"A-1 Probe\"; press_key \""}
+{"step":7,"status":"running","remark":"Step 6"}
+{"step":7,"status":"done","remark":"press_key: Press ArrowLeft"}
+{"step":8,"status":"running","remark":"Step 7"}
+{"step":8,"status":"done","remark":"press_key: Press ArrowLeft"}
+{"step":9,"status":"running","remark":"Step 8"}
+{"step":9,"status":"done","remark":"press_key: Press ArrowLeft"}
+{"step":10,"status":"running","remark":"Step 9"}
+{"step":10,"status":"done","remark":"press_key: Press ArrowLeft"}
+{"step":11,"status":"running","remark":"Step 10"}
+{"step":11,"status":"done","remark":"press_key: Press ArrowLeft"}
+{"step":12,"status":"running","remark":"Step 11"}
+{"step":12,"status":"done","remark":"press_key: Press ArrowLeft"}
+{"step":13,"status":"running","remark":"Step 12"}
+evidence: 1 status_disagrees advisory(ies) ÔÇö self-explained by triaged failure record(s)
+evidence: view locally with `kane-cli evidence serve 
+C:\Users\abaym\.testmuai\kaneai\sessions\3ba6be1f-859e-47dc-9857-62c00d2ffaa3\evidence\69fb0ac7-a0a9-499b-920b-fef1df8d0827.evidence`
+{"type":"run_end","status":"failed","summary":"The test needed one uninterrupted burst of six ArrowLeft presses, but the automation split the work into separate key actions and kept retrying instead of completing the readout.\nFocus the probe first, send one true batched ArrowLeft├ù6 action, confirm the counters update in a single burst, and only then read the requested text values.","one_liner":"The run got stuck because the automation handled the required six-key burst incorrectly and never finished the readback steps.","final_state":{},"reason":"Maximum steps exceeded (12/10)","duration":104.2,"bifurcated":false,"total_runs":1,"context":{"memory":{},"variables":{"answer":{"syntax":"{{answer}}","value":"","type":"text","secret":false,"source":"runtime"},"answer_2":{"syntax":"{{answer_2}}","value":"","type":"text","secret":false,"source":"runtime"},"answer_3":{"syntax":"{{answer_3}}","value":"","type":"text","secret":false,"source":"runtime"},"answer_4":{"syntax":"{{answer_4}}","value":"","type":"text","secret":false,"source":"runtime"},"answer_5":{"syntax":"{{answer_5}}","value":"","type":"text","secret":false,"source":"runtime"}},"pointer":"(failed) The run got stuck because the automation handled the required six-key burst incorrectly and never finished the readback steps."},"credits_consumed":23.190704999999998,"session_dir":"C:\\Users\\abaym/.testmuai/kaneai/sessions\\3ba6be1f-859e-47dc-9857-62c00d2ffaa3","run_dir":"C:\\Users\\abaym/.testmuai/kaneai/sessions\\3ba6be1f-859e-47dc-9857-62c00d2ffaa3\\runs\\0","result_code":310,"reason_code":"stuck.max_steps","per_flow_metadata":[{"result_code":"310","reason_code":"stuck.max_steps","error_message":"Maximum steps exceeded (12/10)","summary":"The test needed one uninterrupted burst of six ArrowLeft presses, but the automation split the work into separate key actions and kept retrying instead of completing the readout.\nFocus the probe first, send one true batched ArrowLeft├ù6 action, confirm the counters update in a single burst, and only then read the requested text values.","one_liner":"The run got stuck because the automation handled the required six-key burst incorrectly and never finished the readback steps.","credits_consumed":23.190704999999998}],"run_id":"run-0","verdict":{"confirmed":false,"status":"broken","family":"automation_bug","category":"agent_misstep","category_proposal":"","severity":"major","root_cause":"The test needed one uninterrupted burst of six ArrowLeft presses, but the automation split the work into separate key actions and kept retrying instead of completing the readout.","agent_fault_assessment":"The agentÔÇÖs own actions caused the failure. It first sent the ArrowLeft burst before focusing the page, then after focusing it did not complete the task in the required single batched action. The later evidence shows the run devolved into individual ArrowLeft presses and a queued multi-step plan, which violated the objective and used up the step budget. This points to an execution/planning mistake by the automation, not a product defect.","bug_title":"Six-key burst decomposed into separate ArrowLeft presses","signals":[],"confidence":0.95,"suggestion":"Focus the probe first, send one true batched ArrowLeft├ù6 action, confirm the counters update in a single burst, and only then read the requested text values.","one_liner":"The run got stuck because the automation handled the required six-key burst incorrectly and never finished the readback steps.","relevant_steps":[2,3,4,5,11],"culprit_step":"step 0-5","credits_consumed":5.8706,"mode":"terminal"},"test_url":"https://test-manager.lambdatest.com/projects/01M0BYJPSRTAPFFQQY30JTPHSJ/test-cases/01M0HXDMXWTA3ZPTJWQQCAG9NM/dashboard/share/US_8KITNUCLUIY8E8E01FYKTUVXG9A0BHNCK1A1U1GA9FK0WWPSKD1DQ52C2P53XYXF?type=summary&agentView=true&fqdn=summary-page"}

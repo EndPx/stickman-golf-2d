@@ -1,0 +1,38 @@
+﻿node.exe : 
+At C:\Users\abaym\AppData\Roaming\npm\kane-cli.ps1:24 char:5
++     & "node$exe"  "$basedir/node_modules/@testmuai/kane-cli/bin/kane- ...
++     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+Update available: 0.8.4 ÔåÆ 0.8.5 ÔÇö run `npm install -g 
+@testmuai/kane-cli@latest` to update
+
+Skill update available: not installed ÔåÆ 0.0.17 ÔÇö run `kane-cli install 
+skill`
+
+{"type":"recording_state","enabled":true,"session_id":"3b70d01c-c4f6-4508-86ab-2ca82ab7a081","persist":false}
+Running on: Desktop ┬À Chrome
+{"type":"update_available","current":"0.8.4","latest":"0.8.5","severity":"patch"}
+{"type":"skill_update_available","current":null,"latest":"0.0.17","install_cmd":"kane-cli install skill"}
+{"type":"bifurcation","flows":["Navigate to http://localhost:4173 then Then press the ArrowLeft key exactly 4 times.\nThen read and report the text content of the elements with data-testid probe-keydown-count, probe-burst-count, probe-max-burst, probe-gaps and overlay-aim-angle.\nGet the text content of the element with data-testid probe-keydown-count and save it as {{answer}}.\nGet the text content of the element with data-testid probe-burst-count and save it as {{answer_2}}.\nGet the text content of the element with data-testid probe-max-burst and save it as {{answer_3}}.\nGet the text content of the element with data-testid probe-gaps and save it as {{answer_4}}.\nGet the text content of the element with data-testid overlay-aim-angle and save it as {{answer_5}}."],"count":1}
+{"step":2,"status":"running","remark":"Step 1"}
+{"step":2,"status":"done","remark":"navigate: Navigate to http://localhost:4173"}
+{"step":3,"status":"running","remark":"Step 2"}
+{"step":3,"status":"done","remark":"press_key: PRIMARY: press the ArrowLeft key"}
+{"step":4,"status":"running","remark":"Step 3"}
+{"step":4,"status":"done","remark":"press_key: PRIMARY: press the ArrowLeft key"}
+{"step":5,"status":"running","remark":"Step 4"}
+{"step":5,"status":"done","remark":"press_key: PRIMARY: press the ArrowLeft key"}
+{"step":6,"status":"running","remark":"Step 5"}
+{"step":6,"status":"done","remark":"click: PRIMARY: page play area background; role=generic; text=\"\" | HINTS: position=empt"}
+{"step":7,"status":"running","remark":"Step 6"}
+{"step":7,"status":"done","remark":"press_key: PRIMARY: press the ArrowLeft key"}
+{"step":8,"status":"running","remark":"Step 7"}
+{"step":8,"status":"done","remark":"analyze: ANALYZE(literal, 'The text content of the element with data-testid overlay-aim-a"}
+{"step":9,"status":"running","remark":"Step 8"}
+{"step":9,"status":"done","remark":"wait: Waiting briefly with no further interaction"}
+evidence: view locally with `kane-cli evidence serve C:\Users\abaym\.testmuai\k
+aneai\sessions\3b70d01c-c4f6-4508-86ab-2ca82ab7a081\evidence\8117aeb0-4916-43e6
+-8585-cd32ff21d6c8.evidence`
+{"type":"run_end","status":"passed","summary":"The task was to press the Left Arrow key exactly 4 times on the page.\nThe run completed successfully and the page registered 4 key presses.\nThe recorded values at the end were: keydown count 4, burst count 4, max burst 1, gaps 7819,7348,18728, and aim angle 20.","one_liner":"pressed the Left Arrow key 4 times on localhost","final_state":{"url":"http://localhost:4173/","keydown_count":"4","burst_count":"4","max_burst":"1","gaps":"7819,7348,18728","aim_angle":"20"},"reason":"Objective completed","duration":86.6,"bifurcated":false,"total_runs":1,"context":{"memory":{"answer":{"extracted_value":"4","operator":"equals","transforms":["strip"],"json_path":null,"reasoning":"value: '4' (stored, no comparison)","analyzer_type":"literal","step":7,"query":"The text content of the element with data-testid probe-keydown-count is saved as .","condition":"The text content of the element with data-testid probe-keydown-count is saved as .","human_description":"Storing the keydown count text","expected_value":""},"answer_2":{"extracted_value":"4","operator":"equals","transforms":["strip"],"json_path":null,"reasoning":"value: '4' (stored, no comparison)","analyzer_type":"literal","step":7,"query":"The text content of the element with data-testid probe-burst-count is saved as .","condition":"The text content of the element with data-testid probe-burst-count is saved as .","human_description":"Storing the burst count text","expected_value":""},"answer_3":{"extracted_value":"1","operator":"equals","transforms":["strip"],"json_path":null,"reasoning":"value: '1' (stored, no comparison)","analyzer_type":"literal","step":7,"query":"The text content of the element with data-testid probe-max-burst is saved as .","condition":"The text content of the element with data-testid probe-max-burst is saved as .","human_description":"Storing the max burst size text","expected_value":""},"answer_4":{"extracted_value":"7819,7348,18728","operator":"equals","transforms":["strip"],"json_path":null,"reasoning":"value: '7819,7348,18728' (stored, no comparison)","analyzer_type":"literal","step":7,"query":"The text content of the element with data-testid probe-gaps is saved as .","condition":"The text content of the element with data-testid probe-gaps is saved as .","human_description":"Storing the gaps text","expected_value":""},"answer_5":{"extracted_value":"20","operator":"equals","transforms":["strip"],"json_path":null,"reasoning":"value: '20' (stored, no comparison)","analyzer_type":"literal","step":7,"query":"The text content of the element with data-testid overlay-aim-angle is saved as .","condition":"The text content of the element with data-testid overlay-aim-angle is saved as .","human_description":"Storing the aim angle text","expected_value":""}},"variables":{"answer":{"syntax":"{{answer}}","value":"4","type":"memory","secret":false},"answer_2":{"syntax":"{{answer_2}}","value":"4","type":"memory","secret":false},"answer_3":{"syntax":"{{answer_3}}","value":"1","type":"memory","secret":false},"answer_4":{"syntax":"{{answer_4}}","value":"7819,7348,18728","type":"memory","secret":false},"answer_5":{"syntax":"{{answer_5}}","value":"20","type":"memory","secret":false}},"pointer":"(passed) pressed the Left Arrow key 4 times on localhost"},"credits_consumed":23.73269,"session_dir":"C:\\Users\\abaym/.testmuai/kaneai/sessions\\3b70d01c-c4f6-4508-86ab-2ca82ab7a081","run_dir":"C:\\Users\\abaym/.testmuai/kaneai/sessions\\3b70d01c-c4f6-4508-86ab-2ca82ab7a081\\runs\\0","result_code":100,"reason_code":"success.complete","per_flow_metadata":[{"result_code":"100","reason_code":"success.complete","error_message":null,"summary":"The task was to press the Left Arrow key exactly 4 times on the page.\nThe run completed successfully and the page registered 4 key presses.\nThe recorded values at the end were: keydown count 4, burst count 4, max burst 1, gaps 7819,7348,18728, and aim angle 20.","one_liner":"pressed the Left Arrow key 4 times on localhost","credits_consumed":23.73269}],"run_id":"run-0","test_url":"https://test-manager.lambdatest.com/projects/01M0BYJPSRTAPFFQQY30JTPHSJ/test-cases/01M0HX44CJFQVKS430N03ATAA1/dashboard/share/US_30HDM4GI7KN5TY6JAVMW77GOB0PV7JZOWMANQ478P0QYNHLPJJAQTWJUW4JM8HYR?type=summary&agentView=true&fqdn=summary-page"}

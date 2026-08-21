@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>A-1 Probe — batched keypress detector</title>
+<style>
+  body { font: 16px/1.5 ui-monospace, "Cascadia Code", Consolas, monospace;
+         background: #14171c; color: #e6e6e6; margin: 0; padding: 24px; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  p.sub { color: #8b95a5; margin: 0 0 20px; }
+  table { border-collapse: collapse; }
+  td { padding: 4px 18px 4px 0; }
+  td.k { color: #8b95a5; }
+  td.v { color: #7fd1b9; font-weight: 700; }
+  #hint { margin-top: 20px; color: #8b95a5; }
+</style>
+</head>
+<body>
+  <h1>A-1 Probe</h1>
+  <p class="sub">Counts individual keydown events and infers how many separate dispatch bursts delivered them.</p>
+
+  <table>
+    <tr><td class="k">aim angle</td>       <td class="v" data-testid="overlay-aim-angle">0</td></tr>
+    <tr><td class="k">power</td>           <td class="v" data-testid="overlay-power">50</td></tr>
+    <tr><td class="k">status</td>          <td class="v" data-testid="overlay-status">BALL_AT_REST</td></tr>
+    <tr><td class="k">keydown count</td>   <td class="v" data-testid="probe-keydown-count">0</td></tr>
+    <tr><td class="k">burst count</td>     <td class="v" data-testid="probe-burst-count">0</td></tr>
+    <tr><td class="k">max burst size</td>  <td class="v" data-testid="probe-max-burst">0</td></tr>
+    <tr><td class="k">last key</td>        <td class="v" data-testid="probe-last-key">NONE</td></tr>
+    <tr><td class="k">gaps (ms)</td>       <td class="v" data-testid="probe-gaps">NONE</td></tr>
+  </table>
+
+  <p id="hint">Left/Right arrow steps aim by 5 degrees. Up/Down steps power by 5 percent. Space fires.</p>
+
+<script>
+// A burst is a run of keydowns with no gap longer than BURST_GAP_MS between them.
+// Browser auto-repeat sits around 30-50ms. A separate agent step costs a network
+// round trip, so it lands seconds apart. 400ms separates the two cleanly.
+const BURST_GAP_MS = 400;
+
+const ANGLE_STEP = 5;
+const POWER_STEP = 5;
+const POWER_MIN = 10;
+const POWER_MAX = 100;
+
+let angle = 0;
+let power = 50;
+let keydownCount = 0;
+let burstCount = 0;
+let currentBurstSize = 0;
+let maxBurstSize = 0;
+let lastStamp = null;
+const gaps = [];
+
+const set = (id, value) => {
+  const el = document.querySelector(`[data-testid="${id}"]`);
+  if (el) el.textContent = String(value);
+};
+
+const wrap360 = (d) => ((d % 360) + 360) % 360;
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
+document.addEventListener('keydown', (event) => {
+  const key = event.key;
+  const tracked = key === 'ArrowLeft' || key === 'ArrowRight'
+               || key === 'ArrowUp'   || key === 'ArrowDown'
+               || key === ' '         || key === 'Spacebar';
+  if (!tracked) return;
+
+  // Mirrors R7.13: arrows and space must not scroll the page.
+  event.preventDefault();
+
+  const now = performance.now();
+  if (lastStamp === null || (now - lastStamp) > BURST_GAP_MS) {
+    burstCount += 1;
+    currentBurstSize = 1;
+    if (lastStamp !== null) gaps.push(Math.round(now - lastStamp));
+  } else {
+    currentBurstSize += 1;
+  }
+  if (currentBurstSize > maxBurstSize) maxBurstSize = currentBurstSize;
+  lastStamp = now;
+  keydownCount += 1;
+
+  if (key === 'ArrowLeft')  angle = wrap360(angle + ANGLE_STEP);
+  if (key === 'ArrowRight') angle = wrap360(angle - ANGLE_STEP);
+  if (key === 'ArrowUp')    power = clamp(power + POWER_STEP, POWER_MIN, POWER_MAX);
+  if (key === 'ArrowDown')  power = clamp(power - POWER_STEP, POWER_MIN, POWER_MAX);
+  if (key === ' ' || key === 'Spacebar') set('overlay-status', 'BALL_MOVING');
+
+  set('overlay-aim-angle', angle);
+  set('overlay-power', power);
+  set('probe-keydown-count', keydownCount);
+  set('probe-burst-count', burstCount);
+  set('probe-max-burst', maxBurstSize);
+  set('probe-last-key', key === ' ' ? 'SPACE' : key.toUpperCase());
+  set('probe-gaps', gaps.length ? gaps.join(',') : 'NONE');
+}, { capture: true });
+
+// Focus the document body so keys land without any pointer interaction (R7.18).
+window.addEventListener('load', () => { document.body.focus(); });
+</script>
+</body>
+</html>
