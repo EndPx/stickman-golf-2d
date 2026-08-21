@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Stickman Golf 2D</title>
+  </head>
+  <body>
+    <!--
+      R9.1 - the Debug_Overlay renders as DOM outside the rendering canvas and is present from the
+      first rendered frame with no query parameter, keypress or configuration flag required. Both
+      roots below are populated by the client; the overlay is built in task 10 and the canvas is
+      attached by the Renderer in task 8.
+    -->
+    <div id="playfield-root"></div>
+    <div id="overlay-root"></div>
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,9 @@
+{
+  "_comment": "R17.1 - extends the shared base and overrides none of `strict`, `noUncheckedIndexedAccess` or `exactOptionalPropertyTypes`. Adds the DOM lib the Debug_Overlay, Input_Controller and Renderer need. The shared modules are included so the client's use of them is checked against the same sources, while shared/tsconfig.json separately checks them with DOM absent.",
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": ["vite/client"]
+  },
+  "include": ["src/**/*.ts", "vite.config.ts", "../shared/**/*.ts"]
+}

@@ -139,7 +139,7 @@ Consequence for this plan: task 1 is no longer a gate to run and has no stop rul
   - Estimate: **5 min**
   - _Requirements: R7.19–R7.26, R15.16, R15.22, R15.23, R4.13, R7.15, R7.16_
 
-- [ ] 2. Project scaffold, TypeScript configuration, single build command
+- [x] 2. Project scaffold, TypeScript configuration, single build command
   - Create the repository layout: `client/` for the Vite application and `shared/` for the Physics_Engine, Constants_Module, Arena_Registry and geometry module. No `server/`; there is no server. `verification/flows/` created empty.
   - One shared base `tsconfig` with `strict`, `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes` enabled, which `client/` does not override.
   - One command that type-checks `client/` and `shared/` and produces no output on a type error. R17.10's test-suite clause is void; see Descoped item 1.

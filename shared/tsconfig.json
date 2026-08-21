@@ -1,0 +1,9 @@
+{
+  "_comment": "R17.9 - the shared modules reference no browser-only interface. `lib` omits DOM and `types` is empty, so `document`, `window` and every other browser global fail to resolve here rather than being caught by review. That is what keeps the Physics_Engine, Constants_Module and Arena_Registry loadable under Node for reproducing a regression outside a browser. Overrides none of the three settings R17.1 fixes.",
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022"],
+    "types": []
+  },
+  "include": ["**/*.ts"]
+}

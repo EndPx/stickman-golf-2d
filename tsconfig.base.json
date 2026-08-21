@@ -1,0 +1,27 @@
+{
+  "_comment": "R17.1 - the one shared base configuration. `strict`, `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes` are enabled here and no downstream tsconfig overrides any of the three. R17.7 - a type error produces no build output, which `noEmit` makes unconditional for the check command.",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "moduleDetection": "force",
+
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "useUnknownInCatchVariables": true,
+
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "allowImportingTsExtensions": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+
+    "noEmit": true
+  }
+}
