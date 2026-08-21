@@ -38,30 +38,72 @@
         height: 100%;
       }
 
+      /*
+        Debug_Overlay layout. R9.15 requires each value element's text content to be the value alone, so
+        every caption is a sibling element rather than part of the value. The styling below is what makes
+        that arrangement readable to a human without putting a single character inside a value element.
+      */
       #overlay-root {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px 20px;
-        align-items: center;
-        padding: 12px 16px;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+        gap: 4px 18px;
+        align-items: start;
+        padding: 14px 16px 20px;
         font-variant-numeric: tabular-nums;
       }
 
-      #overlay-root .field {
-        display: inline-flex;
-        gap: 8px;
-        align-items: center;
+      .overlay-group {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        min-width: 0;
       }
 
-      #overlay-root input {
-        width: 6ch;
-        padding: 4px 6px;
+      .overlay-group h2 {
+        margin: 0 0 4px;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.09em;
+        text-transform: uppercase;
+        color: #7d8b98;
+      }
+
+      .overlay-field {
+        display: flex;
+        gap: 10px;
+        align-items: baseline;
+        justify-content: space-between;
+        min-height: 22px;
+      }
+
+      .overlay-label {
+        color: #8b99a6;
+        white-space: nowrap;
+      }
+
+      .overlay-value {
+        color: #e8edf2;
+        font-weight: 600;
+        text-align: right;
+        overflow-wrap: anywhere;
+      }
+
+      .overlay-input {
+        width: 7ch;
+        padding: 3px 6px;
         border: 1px solid #3a4650;
         border-radius: 4px;
         background: #171d23;
         color: inherit;
         font: inherit;
+        font-weight: 600;
         font-variant-numeric: tabular-nums;
+        text-align: right;
+      }
+
+      .overlay-input:focus-visible {
+        outline: 2px solid #ffb703;
+        outline-offset: 1px;
       }
     </style>
   </head>
