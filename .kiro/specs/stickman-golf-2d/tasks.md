@@ -156,7 +156,7 @@ Consequence for this plan: task 1 is no longer a gate to run and has no stop rul
   - Estimate: **30 min**
   - _Requirements: R4.1–R4.19, R4.21–R4.24, R4.26–R4.33, R17.9_
 
-- [ ] 4. Geometry module and Arena_Registry — all five Arenas as data
+- [x] 4. Geometry module and Arena_Registry — all five Arenas as data
   - Write the shared geometry module: point-in-rectangle, circle-to-axis-aligned-rectangle distance and overlap, segment-to-point distance. It declares no physics or tuning value and is the single source of the math both Arena validation and the Physics_Engine consume.
   - Declare all five Arenas: number, walls, obstacles, spawn point, Hole position, Par (2, 3, 3, 4, 4), and per-edge wall flags with **Arena 2 carrying the single open edge** per the revised R2.19 and D-18, every other edge of every Arena walled. Arena 5's Moving_Obstacle path is declared as data only and nothing consumes it. Declared from this increment regardless of which Arenas are playable, per R2.2.
   - Implement the kept load-time validations only: R2.15 clearance from walls and static obstacles, R2.13 minimum thickness. Each raises a load-time error naming the failing Arena and the failed validation before anything renders. R2.14, R2.17 and R2.20 are descoped.
