@@ -7,19 +7,21 @@
 // A Ball aimed into it must reflect off both and come back out into the Playfield, and no step may
 // ever leave it deeper than the tolerance.
 //
+// Every launch goes through `shoot`, per R8.9. Where a check needs a velocity `shoot` cannot produce -
+// a Ball already wedged inside a wall, or one crawling at a hand-picked speed - that is stated at the
+// call site, because such a state is exactly what the guard under test exists to catch.
+//
 // Run with `node verification/tools/check-physics-contact.ts`.
 
-import { getArena } from '../../shared/arenas.ts';
 import {
   BALL_RADIUS,
   FRICTION_PER_STEP,
   MAX_PENETRATION_TOLERANCE,
   POWER_MAX_PERCENT,
+  REST_SPEED_THRESHOLD,
   WALL_RESTITUTION,
-  launchSpeedForPower,
 } from '../../shared/constants.ts';
 import {
-  createArenaCollision,
   createBallAtRest,
   isInMotion,
   largestSurfaceOverlap,
@@ -27,42 +29,32 @@ import {
   step,
   type BallState,
 } from '../../shared/physics.ts';
+import { collisionFor, createReporter, launchFrom } from './shot-helpers.ts';
 
-let failures = 0;
+const { report, finish } = createReporter();
 
-function report(ok: boolean, label: string, detail: string): void {
-  if (!ok) {
-    failures += 1;
-  }
-  console.log(`${ok ? 'PASS' : 'FAIL'}  ${label}${detail === '' ? '' : ` - ${detail}`}`);
-}
+const collision = collisionFor(1);
+const arena2Collision = collisionFor(2);
 
-const collision = createArenaCollision(getArena(1));
-
-function launch(from: { x: number; y: number }, angleDegrees: number, powerPercent: number): BallState {
-  const speed = launchSpeedForPower(powerPercent);
-  const radians = (angleDegrees * Math.PI) / 180;
-  return {
-    ...createBallAtRest(from),
-    velocity: { x: Math.cos(radians) * speed, y: Math.sin(radians) * speed },
-    outcome: 'IN_MOTION',
-  };
-}
+// A Ball stopped by the R3.16 bail-out or by the rest debounce has zero velocity, so `isInMotion` ends
+// the loop. The ceiling only stops a runaway.
+const STEP_CEILING = 1000;
 
 // -- corner reflection ---------------------------------------------------------------------------
 
 // Fired down-left at full power from near the bottom-left corner of Arena 1.
-let ball = launch({ x: 200, y: 200 }, 225, POWER_MAX_PERCENT);
+const CORNER_START = { x: 200, y: 200 };
+const CORNER_ANGLE = 225;
+
+let ball = launchFrom(collision, CORNER_START, CORNER_ANGLE, POWER_MAX_PERCENT);
 
 let totalReflections = 0;
 let worstOverlap = Number.NEGATIVE_INFINITY;
 let stepsRun = 0;
 let anomalies = 0;
 const reflectionSteps: number[] = [];
-// A Ball stopped by the R3.16 bail-out has zero velocity, so `isInMotion` also ends the loop then.
-const stepCeiling = 600;
 
-while (isInMotion(ball) && stepsRun < stepCeiling) {
+while (isInMotion(ball) && stepsRun < STEP_CEILING) {
   const outcome = step(collision, ball);
   ball = outcome.ball;
   stepsRun += 1;
@@ -75,12 +67,11 @@ while (isInMotion(ball) && stepsRun < stepCeiling) {
     anomalies += 1;
   }
 
-  const overlap = largestSurfaceOverlap(collision, ball);
-  worstOverlap = Math.max(worstOverlap, overlap);
+  worstOverlap = Math.max(worstOverlap, largestSurfaceOverlap(collision, ball));
 }
 
 console.log(
-  `corner shot: ${String(stepsRun)} steps, ${String(totalReflections)} reflections at steps [${reflectionSteps.join(', ')}], final position (${ball.position.x.toFixed(3)}, ${ball.position.y.toFixed(3)}), final speed ${speedOf(ball).toFixed(4)}\n`,
+  `corner shot: ${String(stepsRun)} steps, ${String(totalReflections)} reflections at steps [${reflectionSteps.join(', ')}], outcome ${ball.outcome}, final position (${ball.position.x.toFixed(3)}, ${ball.position.y.toFixed(3)})\n`,
 );
 
 report(
@@ -95,26 +86,23 @@ report(
 );
 report(anomalies === 0, 'no residual-overlap anomaly on the corner shot', `${String(anomalies)} raised`);
 
-// -- both components reversed by the corner -------------------------------------------------------
-
-// Velocity started down-left; after two perpendicular reflections both components must point up-right.
+// Velocity started down-left; after two perpendicular reflections the Ball must have left the corner
+// heading up-right, so it comes to rest above and to the right of where it turned around.
 report(
-  ball.velocity.x >= 0 && ball.velocity.y >= 0,
-  'both velocity components reverse across the corner',
-  `final velocity (${ball.velocity.x.toFixed(4)}, ${ball.velocity.y.toFixed(4)})`,
+  ball.position.x > BALL_RADIUS && ball.position.y > BALL_RADIUS,
+  'the Ball leaves the corner rather than settling in it',
+  `final position (${ball.position.x.toFixed(3)}, ${ball.position.y.toFixed(3)})`,
 );
 
 // -- R3.6: restitution on the perpendicular component, parallel component preserved --------------
 
-// Straight down at the bottom edge: the perpendicular component is the whole velocity, so one step's
-// friction and one reflection are the only things acting on it.
+// Straight down at the bottom edge from one world unit above contact, so the first step reaches it.
 {
   const start = { x: 500, y: BALL_RADIUS + 1 };
-  const incoming = launch(start, 270, POWER_MAX_PERCENT);
+  const incoming = launchFrom(collision, start, 270, POWER_MAX_PERCENT);
   const first = step(collision, incoming);
 
-  const expectedSpeed =
-    Math.abs(incoming.velocity.y) * FRICTION_PER_STEP * WALL_RESTITUTION;
+  const expectedSpeed = Math.abs(incoming.velocity.y) * FRICTION_PER_STEP * WALL_RESTITUTION;
   const actualSpeed = speedOf(first.ball);
 
   report(
@@ -148,7 +136,7 @@ report(
 
 {
   const start = { x: 500, y: BALL_RADIUS + 1 };
-  const incoming = launch(start, 315, POWER_MAX_PERCENT); // down and to the right
+  const incoming = launchFrom(collision, start, 315, POWER_MAX_PERCENT); // down and to the right
   const parallelBefore = incoming.velocity.x * FRICTION_PER_STEP;
   const first = step(collision, incoming);
 
@@ -163,9 +151,9 @@ report(
 
 {
   function runToStop(): string {
-    let current = launch({ x: 200, y: 200 }, 225, POWER_MAX_PERCENT);
+    let current = launchFrom(collision, CORNER_START, CORNER_ANGLE, POWER_MAX_PERCENT);
     let steps = 0;
-    while (isInMotion(current) && steps < stepCeiling) {
+    while (isInMotion(current) && steps < STEP_CEILING) {
       current = step(collision, current).ball;
       steps += 1;
     }
@@ -174,27 +162,30 @@ report(
 
   const first = runToStop();
   const second = runToStop();
-  report(first === second, 'repeated runs from an identical state agree exactly', first === second ? first : `${first} vs ${second}`);
+  report(
+    first === second,
+    'repeated runs from an identical state agree exactly',
+    first === second ? first : `${first} vs ${second}`,
+  );
 }
 
 // -- R3.16: a Ball driven far outside geometry is returned to its step-start position -------------
 
 {
   // A Playfield edge is a half-plane, so depenetration always clears it in one move however deep the
-  // Ball is - there is no residual overlap to find there. Producing one needs a surface whose
-  // interior can swallow the Ball centre, because then the centre-to-surface distance saturates at
-  // zero and pushing out by BALL_RADIUS is not enough to escape.
+  // Ball is - there is no residual overlap to find there. Producing one needs a surface whose interior
+  // can swallow the Ball centre, because then the centre-to-surface distance saturates at zero and
+  // pushing out by BALL_RADIUS is not enough to escape.
   //
-  // Arena 2's wall spans x 470 to 500, which is 30 world units across, narrower than twice
-  // BALL_RADIUS. A centre parked inside it is a state no legal Shot can produce, which is exactly what
-  // R3.16 guards against.
-  const wallCollision = createArenaCollision(getArena(2));
+  // Arena 2's wall spans x 470 to 500, which is 30 world units across, narrower than twice BALL_RADIUS.
+  // A centre parked inside it is a state no legal Shot can produce - `shoot` would flag it under R6.9 -
+  // which is exactly what R3.16 guards against, so the velocity is set directly here.
   const wedged: BallState = {
     ...createBallAtRest({ x: 485, y: 300 }),
     velocity: { x: 600, y: 0 },
     outcome: 'IN_MOTION',
   };
-  const outcome = step(wallCollision, wedged);
+  const outcome = step(arena2Collision, wedged);
 
   report(
     outcome.residualOverlapAnomaly,
@@ -211,24 +202,28 @@ report(
     'R3.16 sets velocity to exactly zero on both axes',
     `(${String(outcome.ball.velocity.x)}, ${String(outcome.ball.velocity.y)})`,
   );
+  report(
+    outcome.ball.outcome === 'AT_REST',
+    'R3.16 leaves the Ball at rest rather than stranded in motion',
+    outcome.ball.outcome,
+  );
 }
 
 // -- R6.8: an open edge contributes no surface ----------------------------------------------------
 
 {
-  const arena2Collision = createArenaCollision(getArena(2));
-  const rightEdgeSurfaces = arena2Collision.surfaces.filter((surface) => surface.label === 'edge right');
-  const arena1RightEdge = collision.surfaces.filter((surface) => surface.label === 'edge right');
+  const openRightEdge = arena2Collision.surfaces.filter((surface) => surface.label === 'edge right');
+  const walledRightEdge = collision.surfaces.filter((surface) => surface.label === 'edge right');
 
   report(
-    rightEdgeSurfaces.length === 0,
+    openRightEdge.length === 0,
     "Arena 2's open right edge declares no Collision_Surface",
-    `${String(rightEdgeSurfaces.length)} found`,
+    `${String(openRightEdge.length)} found`,
   );
   report(
-    arena1RightEdge.length === 1,
+    walledRightEdge.length === 1,
     "Arena 1's walled right edge declares one Collision_Surface",
-    `${String(arena1RightEdge.length)} found`,
+    `${String(walledRightEdge.length)} found`,
   );
   console.log(
     `\nArena 1 surfaces: [${collision.surfaces.map((surface) => surface.label).join(', ')}]`,
@@ -238,8 +233,21 @@ report(
   );
 }
 
-console.log('');
-console.log(failures === 0 ? 'ALL CHECKS PASSED' : `${String(failures)} CHECK(S) FAILED`);
-if (failures > 0) {
-  process.exitCode = 1;
+// -- R3.14: a Ball with exactly zero velocity is excluded from every operation ---------------------
+
+{
+  const resting = createBallAtRest({ x: 300, y: 300 });
+  const outcome = step(collision, resting);
+  report(
+    outcome.ball === resting && outcome.pathSegments.length === 0,
+    'a Ball at rest is returned untouched and traces no path',
+    `${String(outcome.pathSegments.length)} path segments`,
+  );
+  report(
+    speedOf(resting) < REST_SPEED_THRESHOLD && outcome.ball.stepsSinceLaunch === 0,
+    'a Ball at rest does not advance its step counter',
+    String(outcome.ball.stepsSinceLaunch),
+  );
 }
+
+finish();

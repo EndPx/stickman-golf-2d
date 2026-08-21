@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Local single-player 2D mini-golf browser client whose deliverable is a closed verification loop driven by Kane CLI.",
   "scripts": {
-    "check": "tsc -p shared/tsconfig.json && tsc -p client/tsconfig.json",
+    "check": "tsc -p shared/tsconfig.json && tsc -p client/tsconfig.json && tsc -p verification/tools/tsconfig.json",
     "dev": "vite client",
     "build": "npm run check && vite build client",
     "preview": "vite preview client"

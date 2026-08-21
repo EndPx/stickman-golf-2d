@@ -181,7 +181,7 @@ Consequence for this plan: task 1 is no longer a gate to run and has no stop rul
     - Estimate: **45 min**
     - _Requirements: R3.14 (operations 5–7), R4.12, R5.6, R5.8, R5.11, R6.1, R6.2, R6.4, R6.5_
 
-- [ ] 6. Shot_Controller — the single shot entry point
+- [x] 6. Shot_Controller — the single shot entry point
   - One exported `shoot(angle, power)` under `shared/`, the only code path that may impart velocity to a Ball outside the Physics_Engine's per-step integration. Clamp power into range, wrap angle into 0 up to 360, apply no rounding onto either grid, reject non-finite arguments with `INVALID_SHOT_ARGUMENT`, and record the pre-shot position for the out-of-bounds reset with the R6.9 legality check.
   - `shoot` imparts velocity **locally and permanently**, derived from the R4.5 power-to-launch-speed mapping. There is no Game_Server, so there is no request pipeline, no broadcast vector to await and no later conversion; D-10's two-runtime trigonometric problem does not arise because only one runtime evaluates the angle.
   - Acceptance: `shoot` is the only writer of Ball velocity outside the engine, and a non-finite argument leaves every piece of state unchanged.

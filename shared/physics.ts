@@ -191,15 +191,17 @@ export function createArenaCollision(arena: ArenaDefinition): ArenaCollision {
 // ---------------------------------------------------------------------------------------------
 
 /**
- * Floating-point slack for the residual-overlap comparison of R3.16.
+ * Floating-point slack for comparing a world-unit distance against a world-unit bound.
  *
- * Not a physics, world-scale or tuning value, so R4.18 does not reach it: depenetration leaves
- * *exactly* `MAX_PENETRATION_TOLERANCE` of overlap by construction, so comparing the recomputed
- * overlap against that same tolerance without slack would trip the bail-out on the last bits of the
- * arithmetic that produced it. Scaled by the Playfield width because that bounds the magnitudes the
- * arithmetic runs on.
+ * Not a physics, world-scale or tuning value, so R4.18 does not reach it. It exists because two
+ * comparisons in this project test a quantity against the very bound that produced it: R3.16 compares
+ * the recomputed overlap against the `MAX_PENETRATION_TOLERANCE` depenetration deliberately left
+ * behind, and R6.9 compares a resting Ball's clearance against the `BALL_RADIUS` minus
+ * `MAX_PENETRATION_TOLERANCE` that contact resolution put it at. Without slack both would trip on the
+ * last bits of their own arithmetic. Scaled by the Playfield width because that bounds the magnitudes
+ * involved.
  */
-const RESIDUAL_OVERLAP_SLACK = Number.EPSILON * PLAYFIELD_WIDTH * 8;
+export const WORLD_COMPARISON_SLACK = Number.EPSILON * PLAYFIELD_WIDTH * 8;
 
 /** What one Simulation_Step did. */
 export interface StepOutcome {
@@ -368,7 +370,7 @@ export function step(collision: ArenaCollision, ball: BallState): StepOutcome {
   const residualOverlap = collision.surfaces.some(
     (surface) =>
       BALL_RADIUS - surface.distanceFrom(position) >
-      MAX_PENETRATION_TOLERANCE + RESIDUAL_OVERLAP_SLACK,
+      MAX_PENETRATION_TOLERANCE + WORLD_COMPARISON_SLACK,
   );
 
   if (residualOverlap) {
@@ -580,4 +582,19 @@ export function largestSurfaceOverlap(collision: ArenaCollision, ball: BallState
     largest = Math.max(largest, BALL_RADIUS - surface.distanceFrom(ball.position));
   }
   return largest;
+}
+
+/**
+ * Smallest clearance between a Ball centre and any Collision_Surface of the Arena, in world units.
+ *
+ * The Shot_Controller uses this for R6.9's pre-shot position legality bound. It lives here rather than
+ * in the Shot_Controller because the Collision_Surface list is this module's construction, and R2.18's
+ * single-source-of-the-math rule applies to contact geometry just as it does to Arena validation.
+ */
+export function smallestSurfaceClearance(collision: ArenaCollision, position: Vector2): number {
+  let smallest = Number.POSITIVE_INFINITY;
+  for (const surface of collision.surfaces) {
+    smallest = Math.min(smallest, surface.distanceFrom(position));
+  }
+  return smallest;
 }

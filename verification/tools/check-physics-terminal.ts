@@ -8,7 +8,6 @@
 //
 // Run with `node verification/tools/check-physics-terminal.ts`.
 
-import { getArena } from '../../shared/arenas.ts';
 import {
   HOLE_CAPTURE_MAX_SPEED,
   HOLE_RADIUS,
@@ -16,50 +15,28 @@ import {
   POWER_MAX_PERCENT,
   REST_DEBOUNCE_STEPS,
   REST_SPEED_THRESHOLD,
-  launchSpeedForPower,
 } from '../../shared/constants.ts';
 import { distanceBetweenPoints } from '../../shared/geometry.ts';
 import {
   advance,
-  createArenaCollision,
   createBallAtRest,
   simulateShotToRest,
   speedOf,
   step,
   type BallState,
 } from '../../shared/physics.ts';
+import { collisionFor, createReporter, launchFrom } from './shot-helpers.ts';
 
-let failures = 0;
+const { report, finish } = createReporter();
 
-function report(ok: boolean, label: string, detail: string): void {
-  if (!ok) {
-    failures += 1;
-  }
-  console.log(`${ok ? 'PASS' : 'FAIL'}  ${label}${detail === '' ? '' : ` - ${detail}`}`);
-}
+const collision1 = collisionFor(1);
+const collision2 = collisionFor(2);
+const arena1 = collision1.arena;
+const arena2 = collision2.arena;
 
-const arena1 = getArena(1);
-const arena2 = getArena(2);
-const collision1 = createArenaCollision(arena1);
-const collision2 = createArenaCollision(arena2);
-
-function launchFrom(
-  from: { x: number; y: number },
-  angleDegrees: number,
-  powerPercent: number,
-): BallState {
-  const speed = launchSpeedForPower(powerPercent);
-  const radians = (angleDegrees * Math.PI) / 180;
-  const base = createBallAtRest(from);
-  return {
-    ...base,
-    velocity: { x: Math.cos(radians) * speed, y: Math.sin(radians) * speed },
-    outcome: 'IN_MOTION',
-  };
-}
-
+/** An Arena 1 Ball in motion, launched from that Arena's spawn point through `shoot`. */
 function launch(angleDegrees: number, powerPercent: number): BallState {
-  return launchFrom(arena1.spawn, angleDegrees, powerPercent);
+  return launchFrom(collision1, arena1.spawn, angleDegrees, powerPercent);
 }
 
 // -- the acceptance condition: slow captures, full power passes over -----------------------------
@@ -102,7 +79,7 @@ function launch(angleDegrees: number, powerPercent: number): BallState {
   // "...and is later capturable": the Ball that passed over is still eligible, so a following Shot
   // from where it stopped holes out. R6.2 requires exactly this. Power 35 rather than the minimum,
   // because the return leg is 236 world units and the weakest grid powers cannot carry that far.
-  const followUp = simulateShotToRest(collision1, launchFrom(full.ball.position, 180, 35));
+  const followUp = simulateShotToRest(collision1, launchFrom(collision1, full.ball.position, 180, 35));
   console.log(
     `follow-up from (${full.ball.position.x.toFixed(2)}, ${full.ball.position.y.toFixed(2)}) at 180 deg power 35: outcome ${followUp.ball.outcome}\n`,
   );
@@ -220,7 +197,7 @@ function launch(angleDegrees: number, powerPercent: number): BallState {
   // that edge, and from a position that is deliberately **not** the spawn point, so R6.5's "reset to
   // the pre-shot position rather than the spawn point" clause is actually distinguishable.
   const preShot = { x: 600, y: 300 };
-  const fired = launchFrom(preShot, 0, POWER_MAX_PERCENT);
+  const fired = launchFrom(collision2, preShot, 0, POWER_MAX_PERCENT);
   const result = simulateShotToRest(collision2, fired);
 
   console.log(
@@ -358,7 +335,7 @@ function launch(angleDegrees: number, powerPercent: number): BallState {
       for (let power = 10; power <= POWER_MAX_PERCENT; power += 5) {
         const result = advance(
           collision,
-          launchFrom(collision.arena.spawn, angle, power),
+          launchFrom(collision, collision.arena.spawn, angle, power),
           MAX_SHOT_DURATION_STEPS + 1,
         );
         worstSteps = Math.max(worstSteps, result.stepsExecuted);
@@ -387,7 +364,7 @@ function launch(angleDegrees: number, powerPercent: number): BallState {
       for (let power = 10; power <= POWER_MAX_PERCENT; power += 5) {
         const result = simulateShotToRest(
           collision,
-          launchFrom(collision.arena.spawn, angle, power),
+          launchFrom(collision, collision.arena.spawn, angle, power),
         );
         const label = `${String(angle)}deg/${String(power)}%`;
         if (result.ball.outcome === 'HOLED') {
@@ -411,8 +388,4 @@ function launch(angleDegrees: number, powerPercent: number): BallState {
   report(anomalies === 0, 'no anomaly is raised anywhere on the grid', String(anomalies));
 }
 
-console.log('');
-console.log(failures === 0 ? 'ALL CHECKS PASSED' : `${String(failures)} CHECK(S) FAILED`);
-if (failures > 0) {
-  process.exitCode = 1;
-}
+finish();

@@ -1,0 +1,9 @@
+{
+  "_comment": "The verification tools are neither Game_Client sources nor shared modules, so R17.10's command does not have to cover them - but they are the project's verification apparatus, and unchecked TypeScript there would be the wrong place to save effort. Same base configuration, same three strict settings, no DOM lib because these run under Node, and the Node members they use are declared by hand in ambient.d.ts rather than by adding a dependency.",
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022"],
+    "types": []
+  },
+  "include": ["**/*.ts"]
+}
