@@ -148,10 +148,11 @@ Consequence for this plan: task 1 is no longer a gate to run and has no stop rul
   - Estimate: **45 min**
   - _Requirements: R17.1, R17.2, R17.6, R17.7, R17.8, R17.10, R16.6_
 
-- [ ] 3. Constants_Module
+- [x] 3. Constants_Module
   - Declare every value in Requirement 4 as a read-only binding in one module under `shared/`. Derive `FIXED_STEP_SECONDS` from `SIMULATION_HZ` and derive `MAX_CARRY_DISTANCE` by running the R3.14 per-step decay-then-displace loop at `POWER_MAX_PERCENT` until speed falls below `REST_SPEED_THRESHOLD`; neither is a literal.
   - Assert the R4.33 ordering relation at load time. Import nothing from Three.js and reference no browser-only interface.
   - Acceptance: every constant in Requirement 4 resolves, `MAX_CARRY_DISTANCE` lands near 877 world units, and the module loads under both Node and the browser.
+  - **Measured:** `MAX_CARRY_DISTANCE` derived as **870.0997717136366**, identical under Node and in the browser. The 877 estimate came from the continuous approximation `v0 / 0.9`; under R3.14's declared decay-then-displace order the series asymptote is `(v0 × FIXED_STEP_SECONDS) × FRICTION_PER_STEP / (1 − FRICTION_PER_STEP)` = 875.56, so 877 is not reachable by this derivation at any cutoff and the estimate, not the code, was wrong. 870.1 is 0.8 percent below the estimate and is the correct value for the declared step order.
   - Estimate: **30 min**
   - _Requirements: R4.1–R4.19, R4.21–R4.24, R4.26–R4.33, R17.9_
 
