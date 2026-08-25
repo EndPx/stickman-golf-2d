@@ -112,7 +112,15 @@ const PARALLAX_CLOUDS = 0.12;
 
 function flatMaterial(colour: number): THREE.MeshBasicMaterial {
   // Depth testing off so `renderOrder` alone decides layering and every mesh can stay at z = 0.
-  return new THREE.MeshBasicMaterial({ color: colour, depthTest: false, depthWrite: false });
+  // DoubleSide because winding is not load-bearing in a flat orthographic scene: ShapeGeometry
+  // derives its face orientation from the contour's direction, and a terrain outline traced
+  // left-to-right along the surface comes out clockwise, which FrontSide culling would hide.
+  return new THREE.MeshBasicMaterial({
+    color: colour,
+    depthTest: false,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
 }
 
 /** A rectangle mesh in world units, centred on the given point. */
@@ -336,17 +344,23 @@ export function createRenderer(container: HTMLElement): Renderer {
   hudGroup.renderOrder = LAYER_HUD;
   scene.add(hudGroup);
 
+  // Everything that follows the Ball - aim, stickman, Ball, gauge - lives on one group above the
+  // Course; the mesh-level orders inside it keep aim under stickman under Ball under gauge.
+  const actors = new THREE.Group();
+  actors.renderOrder = LAYER_AIM;
+  scene.add(actors);
+
   const ball = circleMesh({ x: 0, y: 0 }, BALL_RADIUS, colourFor('BALL_P1'), LAYER_BALL);
-  scene.add(ball);
+  actors.add(ball);
 
   const stickman = buildStickman(colourFor('STICKMAN'), LAYER_STICKMAN);
   stickman.scale.set(drawnSizeFor('STICKMAN'), drawnSizeFor('STICKMAN'), 1);
   stickman.visible = false;
-  scene.add(stickman);
+  actors.add(stickman);
 
   const aimIndicator = new THREE.Mesh(UNIT_SQUARE, flatMaterial(colourFor('AIM_INDICATOR')));
   aimIndicator.renderOrder = LAYER_AIM;
-  scene.add(aimIndicator);
+  actors.add(aimIndicator);
 
   // R14.4's arc power gauge: a fixed track arc over the upper semicircle about the Ball, and a fill
   // arc whose swept angle grows strictly with the power value - the arc form of R14.6.
@@ -357,14 +371,14 @@ export function createRenderer(container: HTMLElement): Renderer {
     flatMaterial(colourFor('POWER_GAUGE_TRACK')),
   );
   gaugeTrack.renderOrder = LAYER_GAUGE;
-  scene.add(gaugeTrack);
+  actors.add(gaugeTrack);
 
   const gaugeFill = new THREE.Mesh(
     new THREE.RingGeometry(gaugeRadius - gaugeThickness, gaugeRadius, CIRCLE_SEGMENTS, 1, 0, Math.PI),
     flatMaterial(colourFor('POWER_GAUGE_FILL')),
   );
   gaugeFill.renderOrder = LAYER_GAUGE + 1;
-  scene.add(gaugeFill);
+  actors.add(gaugeFill);
   let renderedPowerPercent = -1;
 
   let renderedChipKey = '';
@@ -402,7 +416,7 @@ export function createRenderer(container: HTMLElement): Renderer {
     for (let index = 0; index < pineCount; index += 1) {
       const height = drawnSizeFor('PINE') * (0.75 + ((index * 37) % 25) / 100);
       pines.add(
-        triangleMesh(spanMin + index * pineSpacing, 0, height * 0.32, height, colourFor('PINE'), LAYER_SCENERY_NEAR),
+        triangleMesh(spanMin + index * pineSpacing, 0, height * 0.32, height, colourFor('PINE'), LAYER_SCENERY_NEAR + 1),
       );
     }
 
@@ -439,7 +453,11 @@ export function createRenderer(container: HTMLElement): Renderer {
 
     buildScenery(arena.courseWidth);
 
+    // Layer ordering note: three.js sorts by the nearest ancestor Group's renderOrder
+    // (`groupOrder`) before any mesh-level renderOrder, so every layer boundary below is expressed
+    // on a Group, and mesh renderOrder only orders siblings within a layer.
     const group = new THREE.Group();
+    group.renderOrder = LAYER_TERRAIN;
 
     // R14.4, R2.21 - the terrain surface, sampled from the registry's own interpolation at the
     // Constants_Module's rendering spacing, filled down to the world floor. This sampling is drawing
