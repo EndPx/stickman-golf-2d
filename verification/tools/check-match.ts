@@ -85,9 +85,11 @@ console.log('');
   report(started.matchPhase === 'IN_PROGRESS', 'R1.25 - the phase starts at IN_PROGRESS', started.matchPhase);
   report(anomalyCount(started) === 0, 'a valid selector records no anomaly', String(anomalyCount(started)));
   report(
-    getArena(2).par === 3 && getArena(2).walls.length === 1,
+    getArena(2).par === 3 &&
+      getArena(2).courseWidth === 1800 &&
+      getArena(2).holeX === 1350,
     'R1.25 - the selector alters no Arena geometry and no Par value',
-    `par ${String(getArena(2).par)}, ${String(getArena(2).walls.length)} walls`,
+    `par ${String(getArena(2).par)}, course ${String(getArena(2).courseWidth)} wide, Hole x ${String(getArena(2).holeX)}`,
   );
 }
 
@@ -193,8 +195,8 @@ console.log('');
 
 {
   let match = createMatch(null);
-  // Away from the Hole, so it stops rather than dropping in.
-  match = fire(match, 180, 30);
+  // Straight up at minimum power: it lands back on the tee slope and rolls out, nowhere near the Hole.
+  match = fire(match, 90, 10);
   const settled = settle(match);
   match = settled.state;
 
@@ -216,12 +218,13 @@ console.log('');
   let match = createMatch('2');
   const spawn = { ...match.ball.position };
 
-  // 340 degrees at full power banks off the bottom edge and leaves through the open right edge.
-  match = fire(match, 340, 100);
+  // A steep full-power lob sails over the crest and past the far Course end - a known out-of-bounds
+  // witness from the grid sweep in check-course.ts.
+  match = fire(match, 95, 85);
   const settled = settle(match);
   match = settled.state;
 
-  console.log(`  Arena 2 at aim 340 power 100 settled after ${String(settled.steps)} steps: ${match.status}`);
+  console.log(`  Arena 2 at aim 95 power 85 settled after ${String(settled.steps)} steps: ${match.status}`);
 
   report(match.status === 'OUT_OF_BOUNDS', 'R5.10 - the token reads OUT_OF_BOUNDS when the Ball leaves the Playfield', match.status);
   report(
@@ -236,13 +239,15 @@ console.log('');
   const held = stepMatch(stepMatch(stepMatch(match).state).state).state;
   report(held.status === 'OUT_OF_BOUNDS', 'R5.10 - OUT_OF_BOUNDS is held across later steps', held.status);
 
-  // The next Shot acknowledges the held token and fires in the same action, so no Agent_Step is wasted.
-  const next = fire(match, 340, 80);
+  // The next Shot acknowledges the held token and fires in the same action, so no Agent_Step is
+  // wasted. From the reset pre-shot position (the tee), the Arena 2 witness shot clears the crest and
+  // drops into the far bowl in one Stroke.
+  const next = fire(match, 40, 100);
   report(next.status === 'BALL_MOVING', 'the next Shot both acknowledges the held token and fires', next.status);
   report(next.strokes === 2, 'the second Stroke is counted', String(next.strokes));
 
   const cleared = settle(next).state;
-  report(cleared.status === 'IN_HOLE', 'Arena 2 holes out at aim 340 power 80 after the reset', cleared.status);
+  report(cleared.status === 'IN_HOLE', 'Arena 2 holes out at aim 40 power 100 after the reset', cleared.status);
   report(cleared.holeOut === 'HOLED_OUT_BY_CAPTURE', 'and latches by capture', cleared.holeOut);
 }
 

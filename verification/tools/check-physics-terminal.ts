@@ -13,6 +13,7 @@ import {
   HOLE_RADIUS,
   MAX_SHOT_DURATION_STEPS,
   POWER_MAX_PERCENT,
+  POWER_MIN_PERCENT,
   REST_DEBOUNCE_STEPS,
   REST_SPEED_THRESHOLD,
 } from '../../shared/constants.ts';
@@ -23,8 +24,10 @@ import {
   simulateShotToRest,
   speedOf,
   step,
+  type AdvanceOutcome,
   type BallState,
 } from '../../shared/physics.ts';
+import { restingCentreAt } from '../../shared/terrain.ts';
 import { collisionFor, createReporter, launchFrom } from './shot-helpers.ts';
 
 const { report, finish } = createReporter();
@@ -42,52 +45,85 @@ function launch(angleDegrees: number, powerPercent: number): BallState {
 // -- the acceptance condition: slow captures, full power passes over -----------------------------
 
 {
-  // Arena 1: spawn and Hole both at y=300, 500 world units apart, so angle 0 aims straight at it.
-  const slow = simulateShotToRest(collision1, launch(0, 70));
-  const full = simulateShotToRest(collision1, launch(0, POWER_MAX_PERCENT));
+  // Arena 1's Hole sits in a basin down a falling fairway, so under A-2 the parameters that capture
+  // and the parameters that fly over are found on the grid rather than assumed. The acceptance
+  // condition is unchanged: some Shot arrives slow enough to capture; a harder one passes over without
+  // capturing and stops beyond the Hole; from there the Hole is capturable again (R6.2).
+  let slow: AdvanceOutcome | null = null;
+  let slowLabel = '';
+  for (let power = POWER_MIN_PERCENT; power <= POWER_MAX_PERCENT; power += 5) {
+    const candidate = simulateShotToRest(collision1, launch(0, power));
+    if (candidate.ball.outcome === 'HOLED') {
+      slow = candidate;
+      slowLabel = `angle 0 / power ${String(power)}`;
+      break;
+    }
+  }
 
-  console.log(
-    `power 70:  outcome ${slow.ball.outcome}, ${String(slow.stepsExecuted)} steps, final (${slow.ball.position.x.toFixed(2)}, ${slow.ball.position.y.toFixed(2)})`,
-  );
-  console.log(
-    `power 100: outcome ${full.ball.outcome}, ${String(full.stepsExecuted)} steps, final (${full.ball.position.x.toFixed(2)}, ${full.ball.position.y.toFixed(2)})\n`,
-  );
+  let over: AdvanceOutcome | null = null;
+  let overLabel = '';
+  searchOver: for (const angle of [0, 5, 355, 10, 350]) {
+    for (let power = POWER_MAX_PERCENT; power >= POWER_MIN_PERCENT; power -= 5) {
+      const candidate = simulateShotToRest(collision1, launch(angle, power));
+      if (
+        candidate.ball.outcome === 'AT_REST' &&
+        candidate.ball.position.x > arena1.hole.x + HOLE_RADIUS
+      ) {
+        over = candidate;
+        overLabel = `angle ${String(angle)} / power ${String(power)}`;
+        break searchOver;
+      }
+    }
+  }
 
-  report(slow.ball.outcome === 'HOLED', 'a slow Ball rolling over the Hole is captured', slow.ball.outcome);
-  report(
-    slow.ball.position.x === arena1.hole.x && slow.ball.position.y === arena1.hole.y,
-    'a captured Ball is held at the Hole centre',
-    `(${String(slow.ball.position.x)}, ${String(slow.ball.position.y)})`,
-  );
-  report(
-    speedOf(slow.ball) === 0,
-    'a captured Ball has exactly zero velocity on both axes',
-    String(speedOf(slow.ball)),
-  );
+  if (slow === null || over === null) {
+    report(false, 'acceptance setup - a capturing Shot and an overshooting Shot both exist', `captured ${slowLabel || 'none'}, overshot ${overLabel || 'none'}`);
+  } else {
+    console.log(
+      `capture shot (${slowLabel}): outcome HOLED in ${String(slow.stepsExecuted)} steps`,
+    );
+    console.log(
+      `overshoot shot (${overLabel}): outcome AT_REST at x ${over.ball.position.x.toFixed(2)} against a Hole at x ${String(arena1.hole.x)}\n`,
+    );
 
-  report(
-    full.ball.outcome !== 'HOLED',
-    'the same shot at full power passes over the Hole without capture',
-    full.ball.outcome,
-  );
-  report(
-    full.ball.position.x > arena1.hole.x + HOLE_RADIUS,
-    'the full-power Ball comes to rest beyond the Hole',
-    `x ${full.ball.position.x.toFixed(2)} against a Hole at x ${String(arena1.hole.x)}`,
-  );
+    report(true, 'a slow Ball arriving at the Hole is captured', slowLabel);
+    report(
+      slow.ball.position.x === arena1.hole.x && slow.ball.position.y === arena1.hole.y,
+      'a captured Ball is held at the Hole centre',
+      `(${String(slow.ball.position.x)}, ${String(slow.ball.position.y)})`,
+    );
+    report(
+      speedOf(slow.ball) === 0,
+      'a captured Ball has exactly zero velocity on both axes',
+      String(speedOf(slow.ball)),
+    );
+    report(
+      over.ball.outcome === 'AT_REST' && over.shotDurationAnomalyCount === 0,
+      'a harder Shot passes over the Hole without capture and stops beyond it',
+      `${overLabel}, x ${over.ball.position.x.toFixed(2)}`,
+    );
 
-  // "...and is later capturable": the Ball that passed over is still eligible, so a following Shot
-  // from where it stopped holes out. R6.2 requires exactly this. Power 35 rather than the minimum,
-  // because the return leg is 236 world units and the weakest grid powers cannot carry that far.
-  const followUp = simulateShotToRest(collision1, launchFrom(collision1, full.ball.position, 180, 35));
-  console.log(
-    `follow-up from (${full.ball.position.x.toFixed(2)}, ${full.ball.position.y.toFixed(2)}) at 180 deg power 35: outcome ${followUp.ball.outcome}\n`,
-  );
-  report(
-    followUp.ball.outcome === 'HOLED',
-    'a Ball that passed over the Hole is capturable on a later Shot',
-    followUp.ball.outcome,
-  );
+    // "...and is later capturable": the Ball that passed over is still eligible, so some following
+    // Shot from where it stopped holes out. The return leg runs uphill out of the basin, so a small
+    // search picks the club rather than assuming one.
+    let followUp: AdvanceOutcome | null = null;
+    let followLabel = '';
+    searchFollowUp: for (let angle = 140; angle <= 220; angle += 10) {
+      for (let power = 20; power <= 80; power += 10) {
+        const candidate = simulateShotToRest(collision1, launchFrom(collision1, over.ball.position, angle, power));
+        if (candidate.ball.outcome === 'HOLED') {
+          followUp = candidate;
+          followLabel = `angle ${String(angle)} / power ${String(power)}`;
+          break searchFollowUp;
+        }
+      }
+    }
+    report(
+      followUp !== null,
+      'a Ball that passed over the Hole is capturable on a later Shot',
+      followUp === null ? 'no grid Shot from the overshoot position reached the Hole' : followLabel,
+    );
+  }
 }
 
 // -- R6.2: speed at the Hole decides, and the boundary is HOLE_CAPTURE_MAX_SPEED -----------------
@@ -124,15 +160,18 @@ function launch(angleDegrees: number, powerPercent: number): BallState {
 // -- R5.6, R5.8: the rest debounce ---------------------------------------------------------------
 
 {
-  // A Ball launched away from the Hole comes to rest by debounce, not by capture.
-  let ball = launch(180, 20);
+  // A Ball lofted straight up at minimum power lands back on the tee slope and rolls to a stop well
+  // short of the Hole - rest by debounce, not by capture.
+  let ball = launch(90, 10);
   let stepsBelowThresholdBeforeStop = 0;
   let stopped = false;
 
   for (let index = 0; index < MAX_SHOT_DURATION_STEPS; index += 1) {
     const before = ball;
     ball = step(collision1, ball).ball;
-    if (speedOf(before) < REST_SPEED_THRESHOLD && !stopped) {
+    // Only grounded slowness counts toward the debounce (R3.14 operation 7's grounded clause), so the
+    // probe applies the same filter an apex would otherwise trip.
+    if (before.grounded && speedOf(before) < REST_SPEED_THRESHOLD && !stopped) {
       stepsBelowThresholdBeforeStop += 1;
     }
     if (ball.outcome === 'AT_REST') {
@@ -162,19 +201,32 @@ function launch(angleDegrees: number, powerPercent: number): BallState {
 // -- R5.8: a dip below the threshold that recovers does not stop the Ball -------------------------
 
 {
-  // Fired almost straight at a wall at low speed: the perpendicular bounce leaves it briefly slow, and
-  // it must not latch to rest while it is still moving.
-  const nearWall = { x: 200, y: 300 };
+  // Rolling uphill along the turf at just under the threshold speed: gravity along the slope bleeds
+  // what little speed remains, the step ends sub-threshold and grounded, and the counter must advance
+  // - while the Ball must not latch to rest, because one step is not three.
+  const rollX = 200;
+  const rollNormal = collision1.terrain.normalAt(rollX);
+  const rollTangent = { x: rollNormal.y, y: -rollNormal.x };
   let ball: BallState = {
-    ...createBallAtRest(nearWall),
-    velocity: { x: -REST_SPEED_THRESHOLD * 0.9, y: 0 },
+    ...createBallAtRest(restingCentreAt(collision1.terrain, rollX, 10)),
+    velocity: {
+      x: rollTangent.x * REST_SPEED_THRESHOLD * 0.9,
+      y: rollTangent.y * REST_SPEED_THRESHOLD * 0.9,
+    },
+    grounded: true,
     outcome: 'IN_MOTION',
   };
   ball = step(collision1, ball).ball;
   const afterOneSubThresholdStep = ball.subThresholdSteps;
 
-  // Give it a shove back above the threshold, as a wall reflection or a Moving_Obstacle would.
-  ball = { ...ball, velocity: { x: 0, y: REST_SPEED_THRESHOLD * 4 } };
+  // Give it a shove back above the threshold, as a downhill grade or a bounce would.
+  ball = {
+    ...ball,
+    velocity: {
+      x: -rollTangent.x * REST_SPEED_THRESHOLD * 4,
+      y: -rollTangent.y * REST_SPEED_THRESHOLD * 4,
+    },
+  };
   ball = step(collision1, ball).ball;
 
   report(
@@ -193,10 +245,10 @@ function launch(angleDegrees: number, powerPercent: number): BallState {
 // -- R6.4, R6.5: out of bounds across Arena 2's open right edge ----------------------------------
 
 {
-  // Arena 2's right edge is open. Fired from beyond the wall so nothing stands between the Ball and
-  // that edge, and from a position that is deliberately **not** the spawn point, so R6.5's "reset to
-  // the pre-shot position rather than the spawn point" clause is actually distinguishable.
-  const preShot = { x: 600, y: 300 };
+  // Arena 2's Course ends are open (A-2 R2.19). Fired from ON the terrain near the right end, from a
+  // position that is deliberately **not** the spawn point, so R6.5's "reset to the pre-shot position
+  // rather than the spawn point" clause is actually distinguishable.
+  const preShot = restingCentreAt(collision2.terrain, arena2.courseWidth - 120, 10);
   const fired = launchFrom(collision2, preShot, 0, POWER_MAX_PERCENT);
   const result = simulateShotToRest(collision2, fired);
 
@@ -221,56 +273,95 @@ function launch(angleDegrees: number, powerPercent: number): BallState {
   );
 }
 
-// -- R6.4: a centre exactly on an edge counts as inside ------------------------------------------
+// -- R6.4: the boundary itself is inside; half a unit past it is not -------------------------------
 
 {
-  // Arena 2's right edge is open, so nothing reflects there. Placed just inside and crawling right at a
-  // speed low enough that one step lands the centre exactly on the edge.
-  const onEdge: BallState = {
-    ...createBallAtRest({ x: 1000 - 1 / 60, y: 300 }),
-    velocity: { x: 1 / 0.985, y: 0 },
+  // Both ends are open and the exit test is strict (`position.x > courseWidth`), so the boundary value
+  // is inside. Contact resolution nudges a rolling Ball along a tilted normal, so exact-landing
+  // arithmetic is brittle; the two sides of the comparison are placed directly instead.
+  const edgeX = arena2.courseWidth;
+  const justInsideStart = restingCentreAt(collision2.terrain, edgeX - 0.5, 10);
+  const justInside: BallState = {
+    ...createBallAtRest(justInsideStart),
+    velocity: { x: 30, y: 0 },
     outcome: 'IN_MOTION',
   };
-  const landed = step(collision2, onEdge).ball;
+  const stayedIn = step(collision2, justInside).ball;
+
+  const pastEdgeStart = restingCentreAt(collision2.terrain, edgeX + 0.5, 10);
+  const justOutside: BallState = {
+    ...createBallAtRest(pastEdgeStart),
+    velocity: { x: 30, y: 0 },
+    outcome: 'IN_MOTION',
+  };
+  const wentOut = step(collision2, justOutside).ball;
+
   report(
-    Math.abs(landed.position.x - 1000) < 1e-9 && landed.outcome !== 'OUT_OF_BOUNDS',
-    'a centre lying exactly on a Playfield edge counts as inside',
-    `x ${landed.position.x.toFixed(12)}, outcome ${landed.outcome}`,
+    stayedIn.outcome !== 'OUT_OF_BOUNDS' && stayedIn.position.x <= edgeX,
+    'a centre at or before the Course end is not out of bounds',
+    `ended x ${stayedIn.position.x.toFixed(3)}, outcome ${stayedIn.outcome}`,
+  );
+  report(
+    wentOut.outcome === 'OUT_OF_BOUNDS' &&
+      wentOut.position.x === pastEdgeStart.x &&
+      wentOut.position.y === pastEdgeStart.y,
+    'a centre past the Course end is out of bounds and resets to its pre-shot position',
+    `outcome ${wentOut.outcome}, reset to (${wentOut.position.x.toFixed(3)}, ${wentOut.position.y.toFixed(3)})`,
   );
 }
 
 // -- capture outranks out of bounds within one step ------------------------------------------------
 
 {
-  // A Hole placed against Arena 2's open right edge would let a Ball satisfy both conditions on the
-  // same step. Arena 2's Hole is at (760, 100), so instead this is checked directly: a Ball that would
-  // exit is holed when its step path also passes through the Hole under the capture speed.
-  const justInside = { x: 760 - HOLE_RADIUS / 2, y: 100 };
-  const crawlingOut: BallState = {
-    ...createBallAtRest(justInside),
-    // Fast enough to leave the Playfield in one step from here, but under the capture speed.
-    velocity: { x: (HOLE_CAPTURE_MAX_SPEED - 1) / 0.985, y: 0 },
+  // No declared Arena puts the Hole within one step of a Course end, so the co-occurrence cannot be
+  // produced through play. It is produced here directly: a synthetic Arena whose Course ends two world
+  // units past the Hole, a Ball rolling across the Hole under the capture speed, so this one step
+  // satisfies both the R6.1 path test and the R6.4 exit test and only one may decide.
+  const syntheticArena = { ...arena2, courseWidth: arena2.holeX + 1 };
+  const syntheticCollision = {
+    arena: syntheticArena,
+    terrain: arena2.terrain,
+    obstacles: [],
+  };
+
+  const startX = arena2.holeX - 2;
+  const startOnSurface = restingCentreAt(arena2.terrain, startX, 10);
+  const crossingOut: BallState = {
+    ...createBallAtRest(startOnSurface),
+    // Post-friction speed stays just under HOLE_CAPTURE_MAX_SPEED, while the displacement carries the
+    // centre past the truncated Course end in the same step.
+    velocity: { x: HOLE_CAPTURE_MAX_SPEED - 1, y: 0 },
+    grounded: true,
     outcome: 'IN_MOTION',
   };
-  const outcome = step(collision2, crawlingOut);
+  const outcome = step(syntheticCollision, crossingOut);
   report(
-    outcome.ball.outcome === 'HOLED',
+    outcome.ball.outcome === 'HOLED' && !outcome.residualOverlapAnomaly,
     'Hole capture outranks out of bounds within one Simulation_Step',
-    `${outcome.ball.outcome}, end position (${outcome.ball.position.x.toFixed(2)}, ${outcome.ball.position.y.toFixed(2)})`,
+    `${outcome.ball.outcome}, end x ${outcome.ball.position.x.toFixed(2)} against a Course end at ${String(syntheticArena.courseWidth)}`,
   );
 }
 
 // -- R6.1: the swept path test catches a graze the endpoint test would miss -----------------------
 
 {
-  // One step at just under the capture speed covers about 3.3 world units, far less than HOLE_RADIUS,
-  // so a straight roll through the Hole cannot slip between samples. The path test is proved instead by
-  // a step whose start and end both sit outside HOLE_RADIUS while the segment between them crosses it.
+  // One step at just under the capture speed covers about 3.3 world units, far less than HOLE_RADIUS.
+  // The Ball flies a step's length straight over the Hole, held `BALL_RADIUS` short of the turf above
+  // it - never touching the ground, never entering the cup horizontally at the step's end, yet its
+  // centre's path passes within HOLE_RADIUS of the Hole and the capture takes it.
   const stepDistance = (HOLE_CAPTURE_MAX_SPEED - 1) / 60;
   const halfSpan = stepDistance / 2;
+  const grazeX = arena1.hole.x - halfSpan;
   const grazing: BallState = {
-    ...createBallAtRest({ x: arena1.hole.x - halfSpan, y: arena1.hole.y + HOLE_RADIUS - 1 }),
-    velocity: { x: (HOLE_CAPTURE_MAX_SPEED - 1) / 0.985, y: 0 },
+    ...createBallAtRest({
+      x: grazeX,
+      // Clear of the turf (`HOLE_RADIUS - 2` = 16 exceeds `BALL_RADIUS` = 10) yet low enough that the
+      // path passes within `HOLE_RADIUS` of a Hole centre sitting on that same surface.
+      y: collision1.terrain.heightAt(grazeX) + HOLE_RADIUS - 2,
+    }),
+    // Airborne, so air friction applies: launching at exactly MAX-1 lands the end-of-step speed just
+    // under the capture ceiling rather than just over it.
+    velocity: { x: HOLE_CAPTURE_MAX_SPEED - 1, y: 0 },
     outcome: 'IN_MOTION',
   };
   const outcome = step(collision1, grazing);

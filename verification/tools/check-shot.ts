@@ -18,6 +18,8 @@ import {
   launchSpeedForPower,
 } from '../../shared/constants.ts';
 import { createBallAtRest, speedOf, type BallState } from '../../shared/physics.ts';
+import { restingCentreAt } from '../../shared/terrain.ts';
+import type { Vector2 } from '../../shared/geometry.ts';
 import {
   SHOT_REJECTION_REASONS,
   clampPowerPercent,
@@ -235,23 +237,39 @@ console.log('');
 }
 
 {
-  // The R6.9 bound is exactly where contact resolution parks a resting Ball.
-  const restingBound = BALL_RADIUS - MAX_PENETRATION_TOLERANCE;
-  const againstTheLeftEdge = { x: restingBound, y: 300 };
-  const insideTheLeftEdge = { x: restingBound - 1, y: 300 };
+  // The R6.9 bound is exactly where contact resolution parks a resting Ball - which under A-2 means
+  // sunk into the terrain along its local normal by MAX_PENETRATION_TOLERANCE, not near any edge:
+  // both Course ends are open in every Arena (A-2 R2.19), so x alone cannot make a position illegal
+  // until it leaves the Course outright.
+  const contactX = 800;
+  const surfaceNormal = collision.terrain.normalAt(contactX);
+  const onTheSurface = restingCentreAt(collision.terrain, contactX, BALL_RADIUS);
+
+  function sunkBy(depth: number): Vector2 {
+    return {
+      x: onTheSurface.x - surfaceNormal.x * depth,
+      y: onTheSurface.y - surfaceNormal.y * depth,
+    };
+  }
+
+  // A hair inside the bound rather than exactly on it: the legality test compares a recomputed
+  // clearance against the very number this construction targets, and the last bits of two different
+  // square roots may disagree where the mathematics agrees.
+  const atTheBound = sunkBy(MAX_PENETRATION_TOLERANCE * 0.999);
+  const deeperThanTheBound = sunkBy(MAX_PENETRATION_TOLERANCE + 1);
 
   report(
-    isLegalPreShotPosition(collision, againstTheLeftEdge),
+    isLegalPreShotPosition(collision, atTheBound),
     'a Ball parked exactly at the R6.9 bound is a legal pre-shot position',
-    `x ${String(againstTheLeftEdge.x)} against a bound of ${String(restingBound)}`,
+    `sunk ${String(MAX_PENETRATION_TOLERANCE)} below the surface at (${atTheBound.x.toFixed(1)}, ${atTheBound.y.toFixed(1)})`,
   );
   report(
-    !isLegalPreShotPosition(collision, insideTheLeftEdge),
+    !isLegalPreShotPosition(collision, deeperThanTheBound),
     'a Ball closer than the R6.9 bound is not a legal pre-shot position',
-    `x ${String(insideTheLeftEdge.x)} against a bound of ${String(restingBound)}`,
+    `sunk ${(MAX_PENETRATION_TOLERANCE + 1).toFixed(1)} below the surface at (${deeperThanTheBound.x.toFixed(1)}, ${deeperThanTheBound.y.toFixed(1)})`,
   );
 
-  const illegal: BallState = createBallAtRest(insideTheLeftEdge);
+  const illegal: BallState = createBallAtRest(deeperThanTheBound);
   const result = shoot(0, 50, { collision, ball: illegal, precondition: null });
   report(
     result.accepted && result.preShotPositionAnomaly,

@@ -1,25 +1,36 @@
-// Task 5.1 acceptance check.
+// Task 5.1 acceptance check - as amended by A-2.
 //
-// "A Ball fired into a walled corner reflects twice and its overlap after every step stays within
-// MAX_PENETRATION_TOLERANCE."
+// The top-down build tested a walled corner. A-2 removed the walls: the primary Collision_Surface is
+// now the terrain's local tangent line, and obstacles keep the rectangle treatment. The equivalent
+// acceptance here:
 //
-// Arena 1 is fully walled, so its bottom-left corner is two perpendicular Collision_Surfaces meeting.
-// A Ball aimed into it must reflect off both and come back out into the Playfield, and no step may
-// ever leave it deeper than the tolerance.
+//   - a Ball fired on a steep arc lands, reflects off the terrain, and its overlap after every step
+//     stays within MAX_PENETRATION_TOLERANCE;
+//   - the per-step operation order is exact - gravity, then friction, then displacement;
+//   - a head-on terrain contact reflects across the tangent's normal scaled by TERRAIN_RESTITUTION,
+//     preserving the parallel component;
+//   - a contact whose velocity already points away from the surface reflects nothing (R3.15);
+//   - repeated runs from an identical state agree exactly (R3.13);
+//   - a Ball driven deep inside an obstacle - a state no legal Shot can produce, which is exactly what
+//     R3.16 guards against - is returned to its step-start position with zero velocity;
+//   - a resting Ball is untouched by `step` and traces no path.
 //
-// Every launch goes through `shoot`, per R8.9. Where a check needs a velocity `shoot` cannot produce -
-// a Ball already wedged inside a wall, or one crawling at a hand-picked speed - that is stated at the
-// call site, because such a state is exactly what the guard under test exists to catch.
+// Every launch goes through `shoot`, per R8.9. Where a check needs a state `shoot` cannot produce -
+// a Ball wedged inside an obstacle, or one parked a hand-picked distance above the turf - that is
+// stated at the call site.
 //
 // Run with `node verification/tools/check-physics-contact.ts`.
 
 import {
+  AIR_FRICTION_PER_STEP,
   BALL_RADIUS,
-  FRICTION_PER_STEP,
+  FIXED_STEP_SECONDS,
+  GRAVITY,
   MAX_PENETRATION_TOLERANCE,
   POWER_MAX_PERCENT,
   REST_SPEED_THRESHOLD,
-  WALL_RESTITUTION,
+  ROLLING_FRICTION_PER_STEP,
+  TERRAIN_RESTITUTION,
 } from '../../shared/constants.ts';
 import {
   createBallAtRest,
@@ -29,129 +40,196 @@ import {
   step,
   type BallState,
 } from '../../shared/physics.ts';
+import { restingCentreAt } from '../../shared/terrain.ts';
+import type { Vector2 } from '../../shared/geometry.ts';
 import { collisionFor, createReporter, launchFrom } from './shot-helpers.ts';
 
 const { report, finish } = createReporter();
 
 const collision = collisionFor(1);
-const arena2Collision = collisionFor(2);
+const arena4Collision = collisionFor(4);
 
 // A Ball stopped by the R3.16 bail-out or by the rest debounce has zero velocity, so `isInMotion` ends
 // the loop. The ceiling only stops a runaway.
-const STEP_CEILING = 1000;
+const STEP_CEILING = 2000;
 
-// -- corner reflection ---------------------------------------------------------------------------
+function scaleAdd(point: Vector2, direction: Vector2, scale: number): Vector2 {
+  return { x: point.x + direction.x * scale, y: point.y + direction.y * scale };
+}
 
-// Fired down-left at full power from near the bottom-left corner of Arena 1.
-const CORNER_START = { x: 200, y: 200 };
-const CORNER_ANGLE = 225;
+// -- landing on the terrain: reflection, tolerance, and a clean settle -----------------------------
 
-let ball = launchFrom(collision, CORNER_START, CORNER_ANGLE, POWER_MAX_PERCENT);
+{
+  // Steep and full-power from a point above the tee: a high arc that comes down hard on rolling ground.
+  const start = { x: 300, y: 300 };
+  const ballLaunched = launchFrom(collision, start, 75, POWER_MAX_PERCENT);
 
-let totalReflections = 0;
-let worstOverlap = Number.NEGATIVE_INFINITY;
-let stepsRun = 0;
-let anomalies = 0;
-const reflectionSteps: number[] = [];
+  let ball = ballLaunched;
+  let totalReflections = 0;
+  let worstOverlap = Number.NEGATIVE_INFINITY;
+  let stepsRun = 0;
+  let anomalies = 0;
 
-while (isInMotion(ball) && stepsRun < STEP_CEILING) {
-  const outcome = step(collision, ball);
-  ball = outcome.ball;
-  stepsRun += 1;
+  while (isInMotion(ball) && stepsRun < STEP_CEILING) {
+    const outcome = step(collision, ball);
+    ball = outcome.ball;
+    stepsRun += 1;
 
-  if (outcome.reflectionCount > 0) {
     totalReflections += outcome.reflectionCount;
-    reflectionSteps.push(stepsRun);
-  }
-  if (outcome.residualOverlapAnomaly) {
-    anomalies += 1;
+    if (outcome.residualOverlapAnomaly) {
+      anomalies += 1;
+    }
+    worstOverlap = Math.max(worstOverlap, largestSurfaceOverlap(collision, ball));
   }
 
-  worstOverlap = Math.max(worstOverlap, largestSurfaceOverlap(collision, ball));
+  console.log(
+    `ballistic shot: ${String(stepsRun)} steps, ${String(totalReflections)} terrain reflections, outcome ${ball.outcome}, final position (${ball.position.x.toFixed(3)}, ${ball.position.y.toFixed(3)})\n`,
+  );
+
+  report(
+    totalReflections >= 1,
+    'a Ball fired on a steep arc reflects off the terrain at least once',
+    `${String(totalReflections)} reflections`,
+  );
+  report(
+    worstOverlap <= MAX_PENETRATION_TOLERANCE + 1e-9,
+    'overlap after every step stays within MAX_PENETRATION_TOLERANCE',
+    `worst overlap ${worstOverlap.toFixed(9)} against a tolerance of ${String(MAX_PENETRATION_TOLERANCE)}`,
+  );
+  report(anomalies === 0, 'no residual-overlap anomaly on the ballistic shot', `${String(anomalies)} raised`);
+  report(
+    ball.outcome === 'AT_REST' && speedOf(ball) === 0,
+    'the Ball settles to exactly zero speed rather than micro-bouncing for ever',
+    `${ball.outcome} at ${String(speedOf(ball))}`,
+  );
 }
 
-console.log(
-  `corner shot: ${String(stepsRun)} steps, ${String(totalReflections)} reflections at steps [${reflectionSteps.join(', ')}], outcome ${ball.outcome}, final position (${ball.position.x.toFixed(3)}, ${ball.position.y.toFixed(3)})\n`,
-);
+// -- R3.14 order, airborne branch: gravity, then friction, then displacement ----------------------
 
-report(
-  totalReflections >= 2,
-  'a Ball fired into a walled corner reflects at least twice',
-  `${String(totalReflections)} reflections`,
-);
-report(
-  worstOverlap <= MAX_PENETRATION_TOLERANCE + 1e-9,
-  'overlap after every step stays within MAX_PENETRATION_TOLERANCE',
-  `worst overlap ${worstOverlap.toFixed(9)} against a tolerance of ${String(MAX_PENETRATION_TOLERANCE)}`,
-);
-report(anomalies === 0, 'no residual-overlap anomaly on the corner shot', `${String(anomalies)} raised`);
-
-// Velocity started down-left; after two perpendicular reflections the Ball must have left the corner
-// heading up-right, so it comes to rest above and to the right of where it turned around.
-report(
-  ball.position.x > BALL_RADIUS && ball.position.y > BALL_RADIUS,
-  'the Ball leaves the corner rather than settling in it',
-  `final position (${ball.position.x.toFixed(3)}, ${ball.position.y.toFixed(3)})`,
-);
-
-// -- R3.6: restitution on the perpendicular component, parallel component preserved --------------
-
-// Straight down at the bottom edge from one world unit above contact, so the first step reaches it.
 {
-  const start = { x: 500, y: BALL_RADIUS + 1 };
-  const incoming = launchFrom(collision, start, 270, POWER_MAX_PERCENT);
-  const first = step(collision, incoming);
+  // High above the turf, falling: no contact can occur this step, so every operation is observable.
+  const start: Vector2 = { x: 500, y: 500 };
+  const falling: BallState = {
+    ...createBallAtRest(start),
+    velocity: { x: 80, y: -120 },
+    grounded: false,
+    outcome: 'IN_MOTION',
+  };
 
-  const expectedSpeed = Math.abs(incoming.velocity.y) * FRICTION_PER_STEP * WALL_RESTITUTION;
-  const actualSpeed = speedOf(first.ball);
+  const outcome = step(collision, falling);
+  const expectedVelocityX = falling.velocity.x * AIR_FRICTION_PER_STEP;
+  const expectedVelocityY = (falling.velocity.y - GRAVITY * FIXED_STEP_SECONDS) * AIR_FRICTION_PER_STEP;
 
   report(
-    first.reflectionCount === 1,
-    'a head-on edge contact reflects exactly once',
-    `${String(first.reflectionCount)} reflections`,
+    Math.abs(outcome.ball.velocity.x - expectedVelocityX) < 1e-9 &&
+      Math.abs(outcome.ball.velocity.y - expectedVelocityY) < 1e-9,
+    'an airborne step applies gravity before friction, exactly',
+    `expected (${expectedVelocityX.toFixed(6)}, ${expectedVelocityY.toFixed(6)}), got (${outcome.ball.velocity.x.toFixed(6)}, ${outcome.ball.velocity.y.toFixed(6)})`,
   );
   report(
-    Math.abs(actualSpeed - expectedSpeed) < 1e-9,
-    'the perpendicular component is scaled by WALL_RESTITUTION after friction',
-    `expected ${expectedSpeed.toFixed(6)}, got ${actualSpeed.toFixed(6)}`,
+    Math.abs(outcome.ball.position.x - (start.x + expectedVelocityX * FIXED_STEP_SECONDS)) < 1e-9 &&
+      Math.abs(outcome.ball.position.y - (start.y + expectedVelocityY * FIXED_STEP_SECONDS)) < 1e-9,
+    'the displacement uses the post-friction velocity times FIXED_STEP_SECONDS',
+    `(${outcome.ball.position.x.toFixed(6)}, ${outcome.ball.position.y.toFixed(6)})`,
   );
   report(
-    first.ball.velocity.y > 0,
-    'the reflected Ball travels away from the edge',
-    `velocity y ${first.ball.velocity.y.toFixed(4)}`,
+    !outcome.ball.grounded && outcome.reflectionCount === 0 && outcome.pathSegments.length === 1,
+    'a clear airborne step touches nothing and traces a single segment',
+    `${String(outcome.reflectionCount)} reflections, ${String(outcome.pathSegments.length)} segment(s)`,
+  );
+}
+
+// -- head-on terrain contact: reflection across the tangent normal ---------------------------------
+
+{
+  // Parked just above contact height and driven straight into the turf - a hand-picked state, because
+  // no grid Shot arrives this precisely. Impact speed sits above BOUNCE_MIN_NORMAL_SPEED, so the
+  // normal component reflects rather than being zeroed.
+  const contactX = 800;
+  const normal = collision.terrain.normalAt(contactX);
+  // 180 units per second crosses the 2-unit approach gap in one step and still sits above
+  // BOUNCE_MIN_NORMAL_SPEED, so the normal component reflects rather than being zeroed.
+  const impactSpeed = 180;
+  const parked: BallState = {
+    ...createBallAtRest(scaleAdd(restingCentreAt(collision.terrain, contactX, BALL_RADIUS), normal, 2)),
+    velocity: scaleAdd({ x: 0, y: 0 }, normal, -impactSpeed),
+  };
+
+  // R3.19 - gravity touches the vertical component before friction runs, so the speed contact
+  // reflects is measured on the velocity gravity and friction leave behind.
+  const velocityAfterGravity = {
+    x: parked.velocity.x,
+    y: parked.velocity.y - GRAVITY * FIXED_STEP_SECONDS,
+  };
+  const preNormalSpeed =
+    (velocityAfterGravity.x * normal.x + velocityAfterGravity.y * normal.y) *
+    ROLLING_FRICTION_PER_STEP;
+
+  const outcome = step(collision, parked);
+  const postNormalSpeed =
+    outcome.ball.velocity.x * normal.x + outcome.ball.velocity.y * normal.y;
+  const expectedPostNormal = -preNormalSpeed * TERRAIN_RESTITUTION;
+
+  report(
+    outcome.reflectionCount === 1,
+    'a head-on terrain contact reflects exactly once',
+    `${String(outcome.reflectionCount)} reflections`,
   );
   report(
-    Math.abs(first.ball.velocity.x) < 1e-12,
-    'a purely perpendicular contact leaves the parallel component at zero',
-    `velocity x ${first.ball.velocity.x.toExponential(3)}`,
+    Math.abs(postNormalSpeed - expectedPostNormal) < 1e-3,
+    'the normal component leaves at TERRAIN_RESTITUTION of what arrived (after friction)',
+    `expected about ${expectedPostNormal.toFixed(4)}, got ${postNormalSpeed.toFixed(4)}`,
   );
   report(
-    first.pathSegments.length === 2,
+    postNormalSpeed > 0,
+    'the reflected Ball travels back out of the ground',
+    `normal-direction speed ${postNormalSpeed.toFixed(4)}`,
+  );
+
+  // The tangential component survives contact untouched. Gravity adds along the world vertical rather
+  // than the tangent, so the comparison runs against the value gravity and friction leave behind.
+  const tangent: Vector2 = { x: normal.y, y: -normal.x };
+  const preParallel =
+    (velocityAfterGravity.x * tangent.x + velocityAfterGravity.y * tangent.y) *
+    ROLLING_FRICTION_PER_STEP;
+  const postParallel = outcome.ball.velocity.x * tangent.x + outcome.ball.velocity.y * tangent.y;
+  report(
+    Math.abs(postParallel - preParallel) < 5e-2,
+    'contact resolution preserves the tangential component',
+    `expected about ${preParallel.toFixed(4)}, got ${postParallel.toFixed(4)} (residual is projection-frame drift: the tangent rotates slightly across the contact displacement)`,
+  );
+  report(
+    outcome.pathSegments.length === 2,
     'a step that resolves contact reports a two-segment path for R6.1',
-    `${String(first.pathSegments.length)} segments`,
+    `${String(outcome.pathSegments.length)} segments`,
   );
 }
 
-// -- R3.15: a glancing contact preserves the parallel component ----------------------------------
+// -- R3.15: a separating contact reflects nothing --------------------------------------------------
 
 {
-  const start = { x: 500, y: BALL_RADIUS + 1 };
-  const incoming = launchFrom(collision, start, 315, POWER_MAX_PERCENT); // down and to the right
-  const parallelBefore = incoming.velocity.x * FRICTION_PER_STEP;
-  const first = step(collision, incoming);
+  const contactX = 800;
+  const normal = collision.terrain.normalAt(contactX);
+  const leaving: BallState = {
+    ...createBallAtRest(scaleAdd(restingCentreAt(collision.terrain, contactX, BALL_RADIUS), normal, -0.4)),
+    velocity: scaleAdd({ x: 0, y: 0 }, normal, 30),
+  };
 
+  const outcome = step(collision, leaving);
   report(
-    Math.abs(first.ball.velocity.x - parallelBefore) < 1e-9,
-    'a glancing edge contact preserves the parallel component exactly',
-    `expected ${parallelBefore.toFixed(6)}, got ${first.ball.velocity.x.toFixed(6)}`,
+    outcome.reflectionCount === 0 && outcome.ball.grounded,
+    'R3.15 - a surface the velocity points away from reflects nothing',
+    `${String(outcome.reflectionCount)} reflections, grounded ${String(outcome.ball.grounded)}`,
   );
 }
 
 // -- R3.13: determinism across repeated runs from an identical state ------------------------------
 
 {
+  const ARC_START: Vector2 = { x: 300, y: 300 };
+
   function runToStop(): string {
-    let current = launchFrom(collision, CORNER_START, CORNER_ANGLE, POWER_MAX_PERCENT);
+    let current = launchFrom(collision, ARC_START, 75, POWER_MAX_PERCENT);
     let steps = 0;
     while (isInMotion(current) && steps < STEP_CEILING) {
       current = step(collision, current).ball;
@@ -169,23 +247,20 @@ report(
   );
 }
 
-// -- R3.16: a Ball driven far outside geometry is returned to its step-start position -------------
+// -- R3.16: a Ball wedged inside an obstacle is returned to its step-start position ----------------
 
 {
-  // A Playfield edge is a half-plane, so depenetration always clears it in one move however deep the
-  // Ball is - there is no residual overlap to find there. Producing one needs a surface whose interior
-  // can swallow the Ball centre, because then the centre-to-surface distance saturates at zero and
-  // pushing out by BALL_RADIUS is not enough to escape.
-  //
-  // Arena 2's wall spans x 470 to 500, which is 30 world units across, narrower than twice BALL_RADIUS.
-  // A centre parked inside it is a state no legal Shot can produce - `shoot` would flag it under R6.9 -
-  // which is exactly what R3.16 guards against, so the velocity is set directly here.
+  // Arena 4's free-standing obstacle spans x 1240..1340, y 320..460 - 100 by 140 world units, far
+  // wider than twice BALL_RADIUS. A centre parked at its middle is deeper inside than any single
+  // depenetration can clear, because the centre-to-surface distance saturates at zero there. This is
+  // a state no legal Shot can produce - `shoot` would flag it under R6.9 - which is exactly what the
+  // guard exists to catch, so the velocity is set directly.
   const wedged: BallState = {
-    ...createBallAtRest({ x: 485, y: 300 }),
+    ...createBallAtRest({ x: 1290, y: 390 }),
     velocity: { x: 600, y: 0 },
     outcome: 'IN_MOTION',
   };
-  const outcome = step(arena2Collision, wedged);
+  const outcome = step(arena4Collision, wedged);
 
   report(
     outcome.residualOverlapAnomaly,
@@ -209,31 +284,7 @@ report(
   );
 }
 
-// -- R6.8: an open edge contributes no surface ----------------------------------------------------
-
-{
-  const openRightEdge = arena2Collision.surfaces.filter((surface) => surface.label === 'edge right');
-  const walledRightEdge = collision.surfaces.filter((surface) => surface.label === 'edge right');
-
-  report(
-    openRightEdge.length === 0,
-    "Arena 2's open right edge declares no Collision_Surface",
-    `${String(openRightEdge.length)} found`,
-  );
-  report(
-    walledRightEdge.length === 1,
-    "Arena 1's walled right edge declares one Collision_Surface",
-    `${String(walledRightEdge.length)} found`,
-  );
-  console.log(
-    `\nArena 1 surfaces: [${collision.surfaces.map((surface) => surface.label).join(', ')}]`,
-  );
-  console.log(
-    `Arena 2 surfaces: [${arena2Collision.surfaces.map((surface) => surface.label).join(', ')}]`,
-  );
-}
-
-// -- R3.14: a Ball with exactly zero velocity is excluded from every operation ---------------------
+// -- a Ball with exactly zero velocity is excluded from every operation ----------------------------
 
 {
   const resting = createBallAtRest({ x: 300, y: 300 });

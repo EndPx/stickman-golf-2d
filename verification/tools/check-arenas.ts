@@ -1,8 +1,13 @@
-// Task 4 acceptance check, made repeatable.
+// Task 4 acceptance check, made repeatable - as amended by A-2.
 //
 // 1. All five Arena definitions load without error - importing the Arena_Registry runs every kept
 //    load-time validation, so a clean import is itself the first half of the check.
-// 2. Deliberately corrupting one spawn point raises a named load-time error.
+// 2. Deliberately corrupting a definition raises a named load-time error.
+//
+// Under A-2 there are no walls and no per-edge flags: an Arena is terrain control points, a tee x,
+// a Hole x, derived spawn and Hole positions, and optional rectangle obstacles. The corruptions below
+// aim at exactly the validations that survive: R2.15 clearance and Course bounds, R2.13 obstacle
+// thickness, and R2.21 terrain coverage and headroom.
 //
 // Run with `node verification/tools/check-arenas.ts`.
 
@@ -10,14 +15,18 @@ import {
   ARENAS,
   ArenaValidationError,
   PLAYABLE_ARENA_NUMBERS,
-  PLAYFIELD_BOUNDS,
   getArena,
   nextPlayableArenaNumber,
   validateArena,
   type ArenaDefinition,
 } from '../../shared/arenas.ts';
-import { BALL_RADIUS, MAX_CARRY_DISTANCE } from '../../shared/constants.ts';
-import { distanceBetweenPoints, rectangleShorterSide } from '../../shared/geometry.ts';
+import {
+  MAX_CARRY_DISTANCE,
+  MIN_WALL_THICKNESS,
+  PLAYFIELD_HEIGHT,
+  PLAYFIELD_WIDTH,
+} from '../../shared/constants.ts';
+import { distanceBetweenPoints } from '../../shared/geometry.ts';
 
 let failures = 0;
 
@@ -33,42 +42,28 @@ function report(ok: boolean, label: string, detail: string): void {
 report(ARENAS.length === 5, 'five Arenas declared', `${String(ARENAS.length)} found`);
 
 console.log(
-  `\nPlayfield ${String(PLAYFIELD_BOUNDS.maxX)} x ${String(PLAYFIELD_BOUNDS.maxY)}, MAX_CARRY_DISTANCE ${MAX_CARRY_DISTANCE.toFixed(2)}\n`,
+  `\nViewport ${String(PLAYFIELD_WIDTH)} x ${String(PLAYFIELD_HEIGHT)}, MAX_CARRY_DISTANCE ${MAX_CARRY_DISTANCE.toFixed(2)}\n`,
 );
 
 for (const arena of ARENAS) {
   const straightLine = distanceBetweenPoints(arena.spawn, arena.hole);
-  const openEdges = (
-    [
-      ['left', arena.edges.left],
-      ['right', arena.edges.right],
-      ['top', arena.edges.top],
-      ['bottom', arena.edges.bottom],
-    ] as readonly (readonly [string, boolean])[]
-  )
-    .filter(([, walled]) => !walled)
-    .map(([name]) => name);
+  const teeToHole = arena.holeX - arena.teeX;
 
   console.log(
     [
       `Arena ${String(arena.number)}`,
       `par ${String(arena.par)}`,
       `"${arena.lesson}"`,
-      `spawn (${String(arena.spawn.x)}, ${String(arena.spawn.y)})`,
-      `hole (${String(arena.hole.x)}, ${String(arena.hole.y)})`,
+      `course ${String(arena.courseWidth)} wide`,
+      `tee-to-hole ${String(teeToHole)}`,
+      `spawn (${arena.spawn.x.toFixed(1)}, ${arena.spawn.y.toFixed(1)})`,
+      `hole (${arena.hole.x.toFixed(1)}, ${arena.hole.y.toFixed(1)})`,
       `straight ${straightLine.toFixed(1)}`,
-      `walls ${String(arena.walls.length)}`,
+      `terrain ${arena.terrain.lowestHeight.toFixed(0)}..${arena.terrain.highestHeight.toFixed(0)}`,
       `obstacles ${String(arena.obstacles.length)}`,
-      `open edges [${openEdges.join(', ')}]`,
       `moving obstacle ${arena.movingObstacle === null ? 'none' : 'declared'}`,
     ].join('  |  '),
   );
-
-  for (const [index, rect] of [...arena.walls, ...arena.obstacles].entries()) {
-    console.log(
-      `        surface ${String(index)}: x [${String(rect.minX)}, ${String(rect.maxX)}] y [${String(rect.minY)}, ${String(rect.maxY)}] shorter side ${String(rectangleShorterSide(rect))}`,
-    );
-  }
 }
 
 console.log('');
@@ -84,7 +79,7 @@ report(
   String(nextPlayableArenaNumber(2)),
 );
 
-// -- 2. a corrupted spawn point raises a named error -------------------------------------------
+// -- 2. corrupted definitions raise named errors -----------------------------------------------
 
 function expectArenaValidationError(label: string, corrupt: () => void): void {
   try {
@@ -104,41 +99,56 @@ function expectArenaValidationError(label: string, corrupt: () => void): void {
 }
 
 const arena2 = getArena(2);
+const arena4 = getArena(4);
 
 console.log('');
 
-// Spawn point moved on top of the Arena 2 wall.
-expectArenaValidationError('corrupted spawn point inside a wall raises a named error', () => {
-  const corrupted: ArenaDefinition = { ...arena2, spawn: { x: 485, y: 300 } };
+// Tee point dragged left of the Course.
+expectArenaValidationError('a tee outside the Course raises a named error', () => {
+  const corrupted: ArenaDefinition = { ...arena2, spawn: { x: -20, y: arena2.spawn.y } };
   validateArena(corrupted);
 });
 
-// Spawn point moved to within less than BALL_RADIUS of the wall's left face at x=470.
-expectArenaValidationError('spawn point under BALL_RADIUS from a wall raises a named error', () => {
+// The Hole dropped onto Arena 4's free-standing obstacle, clearing it by less than BALL_RADIUS.
+const arena4Obstacle = arena4.obstacles[0];
+if (arena4Obstacle !== undefined) {
+  expectArenaValidationError('a Hole inside an obstacle raises a named error', () => {
+    const corrupted: ArenaDefinition = {
+      ...arena4,
+      hole: {
+        x: (arena4Obstacle.minX + arena4Obstacle.maxX) / 2,
+        y: (arena4Obstacle.minY + arena4Obstacle.maxY) / 2,
+      },
+    };
+    validateArena(corrupted);
+  });
+} else {
+  report(false, 'Arena 4 declares its approach obstacle', 'not found');
+}
+
+// An obstacle thinner than MIN_WALL_THICKNESS.
+expectArenaValidationError('an obstacle under MIN_WALL_THICKNESS raises a named error', () => {
   const corrupted: ArenaDefinition = {
-    ...arena2,
-    spawn: { x: 470 - (BALL_RADIUS - 1), y: 300 },
+    ...arena4,
+    obstacles: [{ minX: 1000, minY: 200, maxX: 1000 + MIN_WALL_THICKNESS - 5, maxY: 320 }],
   };
   validateArena(corrupted);
 });
 
-// Spawn point moved outside the Playfield.
-expectArenaValidationError('spawn point outside the Playfield raises a named error', () => {
-  const corrupted: ArenaDefinition = { ...arena2, spawn: { x: -20, y: 300 } };
-  validateArena(corrupted);
-});
-
-// Hole moved on top of the wall.
-expectArenaValidationError('corrupted Hole position inside a wall raises a named error', () => {
-  const corrupted: ArenaDefinition = { ...arena2, hole: { x: 485, y: 300 } };
-  validateArena(corrupted);
-});
-
-// A wall thinner than MIN_WALL_THICKNESS.
-expectArenaValidationError('a wall under MIN_WALL_THICKNESS raises a named error', () => {
+// Terrain that stops short of the far end of the Course, so a Ball could run off the ground.
+expectArenaValidationError('terrain short of the Course end raises a named error', () => {
   const corrupted: ArenaDefinition = {
     ...arena2,
-    walls: [{ minX: 470, minY: 60, maxX: 481, maxY: 600 }],
+    terrain: { ...arena2.terrain, maxX: arena2.courseWidth - 100 },
+  };
+  validateArena(corrupted);
+});
+
+// Terrain rising above half the viewport height, leaving too little sky to arc a Shot through.
+expectArenaValidationError('terrain above half the viewport height raises a named error', () => {
+  const corrupted: ArenaDefinition = {
+    ...arena2,
+    terrain: { ...arena2.terrain, highestHeight: PLAYFIELD_HEIGHT / 2 + 10 },
   };
   validateArena(corrupted);
 });
