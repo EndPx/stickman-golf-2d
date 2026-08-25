@@ -878,3 +878,125 @@ These are not answered and are not assumptions about external behaviour. Each bl
 The control grids are **not** coarsened. `ANGLE_STEP_DEGREES` stays 5 and `POWER_STEP_PERCENT` stays 5. Coarsening was the old fallback direction and it is rejected: raising the aim step to 15 degrees and the power step to 25 percent would bring a Shot down to about seven presses on the relative path, but it would directly damage the Arena 3 precision lesson and the Arena 4 approach-angle lesson, and R15.15 forbids compromising the Course difficulty curve to fit the harness. The absolute path makes a Shot cost a fixed number of Agent_Steps at any grid resolution, so coarsening buys nothing. The relative arrow stepping of R7.1 through R7.4 is retained unchanged for human play.
 
 **What the resolution touched.** R4.13 (grid values, unchanged), R7.1 through R7.4 (per-press step sizes, unchanged), R7.15 and R7.16 (the reachable grids, unchanged), R7.19 through R7.26 (new absolute path), R9.26 and R9.27 (new frozen fields), R15.3 (flow scope), R15.4 (the 15 Agent_Step budget, not widened), R15.16 (the Agent_Step definition, rewritten), R15.22 and R15.23 (step accounting, unchanged and now load-bearing), R18.35 and R18.38 (unchanged, since the grids they draw from are unchanged). The full budget consequence is recorded in the Requirement 15 note and in O-5: the Arena 2 flow fits at Par and has no retry headroom.
+
+---
+
+## Amendment A-2: side-view gravity golf
+
+**Status: adopted.** The product owner supplied a reference image of the intended game and it is a
+**side-elevation golf game under gravity over hilly terrain**, not the top-down mini-golf this document
+described. The two differ underneath, not in styling, so the affected criteria are amended here rather
+than reinterpreted. Everything not named below stands unchanged.
+
+The build as it stood before this amendment is tagged `topdown-final` in version control.
+
+### What the reference fixes
+
+Side view with a camera that pans along a hole wider than the viewport. The Ball is struck, flies a
+ballistic arc under gravity, lands on a continuous terrain surface and runs downhill. A stickman with a
+club stands at the Ball. The HUD reads `Hole`, `Par` and `Strokes` as chips, with an arc power gauge.
+Scenery is layered: sky, clouds, distant mountains, nearer hills with pines.
+
+### What survives untouched, and why that is most of the value
+
+The deliverable being judged is the closed verification loop, and the loop never depended on the view.
+Requirements 1, 5, 7, 8, 9, 10 (as already descoped), 11 through 13, 15, 16 and 17 are unaffected in
+substance: the Status_Token and its edges, `shoot(angle, power)` as the single entry point, the
+Input_Controller's relative and absolute paths with capture-phase interception, the frozen Debug_Overlay
+contract, Stroke accounting, the hole-out latch, the Stroke cap, the start-arena selector, the
+Verification_Harness and its step budget, the Asset_Registry and the dependency set.
+
+### Amended criteria
+
+**R2 — Arena Data Model.** A Playfield rectangle with per-edge wall flags is replaced by a Course
+described as terrain.
+
+- **R2.1 amended.** The Arena_Registry declares, per Arena: the Arena number, the Course width in world
+  units, a sparse list of terrain control points with strictly increasing x, the tee x position, the Hole
+  x position, the Par value, and an optional list of axis-aligned rectangle obstacles. The Ball spawn and
+  the Hole position derive their y from the terrain, so neither can be declared off the surface.
+- **R2.19 replaced.** Per-edge wall flags are gone. **Both Course ends are open in every Arena**, and the
+  out-of-bounds condition is reachable by overshooting either end. This is simpler and truer to the genre
+  than the single open edge D-18 introduced, and it makes `OUT_OF_BOUNDS` reachable in every Arena rather
+  than only in Arena 2. D-18 is therefore void.
+- **R2.7, R2.8 amended.** Arena 1 teaches aiming and power over gentle terrain with the Hole in a shallow
+  basin. Arena 2 teaches carrying a rise: the Hole sits beyond a hill crest that a weak Shot cannot clear.
+- **R2.13 retained** for obstacles only. There are no walls.
+- **R2.15 amended.** The tee and the Hole lie within the Course in x, and clear of every obstacle by at
+  least `BALL_RADIUS`. Their y is derived, not declared, so the "inside the Playfield" clause is moot.
+- **New R2.21.** The terrain is a function of x with no overhang. The Arena_Registry interpolates its
+  sparse control points with **monotone cubic Hermite interpolation**, which is smooth, passes through
+  every control point and cannot overshoot into a vertical face. The Physics_Engine and the Renderer both
+  read that one interpolation, so the drawn ground and the collided ground cannot diverge.
+
+**R3 — Fixed-Step Physics Simulation.** Gravity is added and the contact surface changes.
+
+- **New R3.19.** The Physics_Engine applies `GRAVITY` to the Ball's vertical velocity once per
+  Simulation_Step, before friction and before integration.
+- **R3.5 amended.** Friction is applied once per step as before, but from one of two constants:
+  `ROLLING_FRICTION_PER_STEP` while the Ball is in contact with the terrain, and `AIR_FRICTION_PER_STEP`
+  while it is airborne.
+- **R3.6, R3.7, R3.8 amended.** The terrain is the primary Collision_Surface. Contact is detected by the
+  signed distance from the Ball centre to the **local tangent line** of the terrain at the Ball's x,
+  compared against `BALL_RADIUS`; reflection is across that tangent's normal, scaled by
+  `TERRAIN_RESTITUTION`; depenetration is along that normal. The tangent-line approximation is exact on
+  flat ground and departs from true circle-to-curve distance only where curvature is high relative to
+  `BALL_RADIUS`, which the authored control-point spacing keeps it away from. Obstacles keep the
+  rectangle treatment R3.6 through R3.8 already declared.
+- **New R3.20.** When the speed along the contact normal is below `BOUNCE_MIN_NORMAL_SPEED`, the
+  Physics_Engine zeroes that component instead of reflecting it. Without this a Ball resting on a slope
+  bounces perpetually at ever-smaller amplitude and never satisfies the rest debounce.
+
+**R4 — Physics Constants Module.** Values change because a no-gravity 1000-unit field and a
+gravity-driven multi-thousand-unit hole are not the same problem.
+
+- **R4.1 amended.** `PLAYFIELD_WIDTH` and `PLAYFIELD_HEIGHT` become the **viewport** extent in world
+  units rather than the whole Course. Course width is per-Arena data (R2.1).
+- **R4.5 amended.** `MIN_LAUNCH_SPEED` and `MAX_LAUNCH_SPEED` are re-tuned for ballistic carry. The
+  mapping stays linear and strictly increasing between them. Q-6's reasoning for raising the maximum
+  holds; the number it produced does not survive the addition of gravity.
+- **R4.6 replaced** by `ROLLING_FRICTION_PER_STEP` and `AIR_FRICTION_PER_STEP`, each strictly above 0 and
+  at or below 1.
+- **R4.7 renamed** to `TERRAIN_RESTITUTION`, same bounds and same role.
+- **R4.16 amended.** `MAX_CARRY_DISTANCE` is derived as the horizontal range of a Shot at
+  `POWER_MAX_PERCENT` launched at 45 degrees over level ground, accumulated with the same per-step order
+  R3.14 declares. It is no longer a rolling distance.
+- **New R4.34.** `GRAVITY`, in world units per second squared.
+- **New R4.35.** `BOUNCE_MIN_NORMAL_SPEED`, in world units per second.
+- **New R4.36.** `TERRAIN_RENDER_SAMPLE_SPACING`, in world units, at which the Renderer samples the
+  interpolated terrain. A rendering quantity only; the Physics_Engine evaluates the interpolation
+  analytically and samples nothing.
+- `MIN_CORRIDOR_WIDTH` and `MIN_WALL_THICKNESS` survive with obstacles; `MOVING_OBSTACLE_SPEED` remains
+  declared with no consumer.
+
+**R6 — Hole Capture and Out of Bounds.**
+
+- **R6.1 retained in full.** The swept path test against `HOLE_RADIUS` with an end-of-step speed below
+  `HOLE_CAPTURE_MAX_SPEED` is unchanged, and matters more here: a Ball arriving on a descending arc
+  crosses the Hole faster than a rolling one.
+- **R6.4 amended.** A Ball is out of bounds when its centre leaves the Course in x. Falling below the
+  terrain cannot happen, because contact resolution runs every step.
+- **R6.6 satisfied by every Arena** rather than by one, per the R2.19 replacement.
+- **R6.7, R6.8 void.** There are no Playfield edges to declare walled or open.
+
+**R14 — Rendering.**
+
+- **R14.3 amended.** The orthographic camera frames `PLAYFIELD_WIDTH` by `PLAYFIELD_HEIGHT` world units
+  at equal world units per pixel on both axes, centred on the Ball and clamped to the Course bounds, so
+  it pans as the Ball travels. The whole Course is deliberately **not** visible at once; that is what the
+  reference shows and what makes a long hole read as long.
+- **R14.4 amended.** The Renderer draws the terrain surface, the sky, the parallax scenery layers, the
+  Hole with a flag, the Ball, the stickman, the aim indicator, the arc power gauge and the `Hole`, `Par`
+  and `Strokes` chips. Playfield bounds and Arena walls are replaced by the terrain and the Course ends.
+- **New R14.14.** The Renderer draws a stickman figure at the Ball while the Status_Token reads
+  `BALL_AT_REST`, and omits it while the Ball is in motion.
+- **New R14.15.** The HUD is drawn inside the rendering canvas through Three.js (R17.3) and pinned to the
+  camera, so it holds position while the camera pans.
+
+### Explicitly not built
+
+The reference also shows a coin counter, a pause button and three round on-screen touch buttons. The coin
+counter and pause button have no requirement behind them and are cut. The touch buttons are a **pointer**
+affordance, and R7.14 makes the keyboard the only input device required to complete a Match because the
+Verification_Harness has no pointer; they are cut rather than built as a second path that no flow would
+exercise. R8.3 already states the terms on which a pointer method could be added later.
