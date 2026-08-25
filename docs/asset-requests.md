@@ -152,3 +152,146 @@ and one warm accent. A designer replacing these values changes `client/src/visua
   canvas-texture step, and would be the one asset here that changes the code rather than a value.
 - **Current placeholder:** `#f6f8fb`, 34 world units tall
 - **Status:** REQUESTED
+
+## Entries withdrawn by Amendment A-2
+
+R14.4, as amended, replaced the Playfield rectangle, its border and the walls with terrain under a
+sky, and replaced the power bar with an arc gauge. The entries above that described those elements -
+`PLAYFIELD_INTERIOR`, `PLAYFIELD_BORDER`, `OUTSIDE_PLAYFIELD`, `WALL`, `POWER_INDICATOR_TRACK`,
+`POWER_INDICATOR_FILL` - describe elements that no longer draw, so no replacement will ever be
+supplied for them. Their status fields stay exactly as written, because the convention allows only
+`REQUESTED` and `SUPPLIED`; this note is the record that they are void rather than open. The keys
+themselves were removed from `client/src/visuals.ts`: R16.1's frozen spelling protects external
+bindings, the Debug_Overlay contract is the only external binding in this project, and the palette is
+internal to the Renderer. `PAR_LABEL`'s readout moved into the HUD chips below; its colour request
+carries over unchanged in spirit to `CHIP_TEXT`.
+
+## Entries raised by Amendment A-2
+
+Raised alongside the A-2 renderer rewrite. Every element draws from a procedural placeholder declared
+in `client/src/visuals.ts` (R16.2, R16.4); each entry remains a designer request, never a blocker.
+Scenery layering per the reference image: sky, clouds, distant mountains, nearer hills with pines.
+
+### SKY
+
+- **Subject or role:** The sky fill behind all scenery, and the clear colour of the frame.
+- **Location of use:** Everything the panning camera can see.
+- **Dimensions and format:** n/a - colour palette value
+- **Current placeholder:** `#87ceeb`
+- **Status:** REQUESTED
+
+### CLOUD
+
+- **Subject or role:** Cloud puffs on the slowest parallax layer.
+- **Location of use:** High band above the mountains. Declared size is puff height.
+- **Dimensions and format:** n/a - colour palette value; soft-edged 128x64 PNG sprites would suit
+- **Current placeholder:** `#ffffff`
+- **Status:** REQUESTED
+
+### MOUNTAIN_FAR
+
+- **Subject or role:** Distant mountain silhouettes, slowest terrain layer.
+- **Location of use:** Ridge line behind the near hills. Declared size is peak height.
+- **Dimensions and format:** n/a - colour palette value
+- **Current placeholder:** `#9db4cd`
+- **Status:** REQUESTED
+
+### MOUNTAIN_NEAR
+
+- **Subject or role:** Nearer hill silhouettes between the mountains and the Course.
+- **Location of use:** Second ridge line. Declared size is peak height.
+- **Dimensions and format:** n/a - colour palette value
+- **Current placeholder:** `#5d8a63`
+- **Status:** REQUESTED
+
+### PINE
+
+- **Subject or role:** Pine trees along the near hills, fastest scenery layer.
+- **Location of use:** Marched across the whole span. Declared size is tree height.
+- **Dimensions and format:** n/a - colour palette value; a 64x64 PNG tree sprite would suit
+- **Current placeholder:** `#2e5d3a`
+- **Status:** REQUESTED
+
+### TERRAIN_GRASS
+
+- **Subject or role:** Fill of the Course surface itself, from the crest down to the world floor.
+- **Location of use:** The terrain polygon sampled from the Arena_Registry interpolation (R4.36).
+- **Dimensions and format:** n/a - colour palette value; a vertical grass-to-earth gradient texture
+  would suit better than any flat fill
+- **Current placeholder:** `#3f9142`
+- **Status:** REQUESTED
+
+### TERRAIN_SOIL
+
+- **Subject or role:** Darker ground band directly beneath the crest line.
+- **Location of use:** A ribbon hanging below the sampled surface. Declared size is band depth.
+- **Dimensions and format:** n/a - colour palette value
+- **Current placeholder:** `#6b4a2e`, 26 world units deep
+- **Status:** REQUESTED
+
+### TERRAIN_EDGE
+
+- **Subject or role:** Light crest line marking the exact surface the Ball rolls on.
+- **Location of use:** A ribbon along the sampled surface. Declared size is thickness.
+- **Dimensions and format:** n/a - colour palette value
+- **Current placeholder:** `#8fd08a`, 7 world units thick
+- **Status:** REQUESTED
+
+### FLAG_POLE
+
+- **Subject or role:** Pole rising from the Hole.
+- **Location of use:** Vertical rectangle at the Hole. Declared size is pole height.
+- **Dimensions and format:** n/a - colour palette value
+- **Current placeholder:** `#dadde0`, 96 world units tall
+- **Status:** REQUESTED
+
+### FLAG_CLOTH
+
+- **Subject or role:** Flag cloth at the pole top, flying downrange.
+- **Location of use:** Triangle beside the pole top. Declared size is cloth height.
+- **Dimensions and format:** n/a - colour palette value; a waving-cloth GIF or animated sprite would suit
+- **Current placeholder:** `#e63946`, 22 world units tall
+- **Status:** REQUESTED
+
+### STICKMAN
+
+- **Subject or role:** The stickman figure of R14.14, standing at the Ball while it rests.
+- **Location of use:** At the Ball's ground contact point. Declared size is figure height.
+- **Dimensions and format:** n/a - colour palette value; a drawn stickman with a club, 64x64 PNG,
+  would replace the procedural figure wholesale
+- **Current placeholder:** `#22262b`, 62 world units tall
+- **Status:** REQUESTED
+
+### POWER_GAUGE_TRACK
+
+- **Subject or role:** Unfilled extent of the arc power gauge about the Ball.
+- **Location of use:** Upper semicircle centred on the Ball. Declared size is arc radius.
+- **Dimensions and format:** n/a - colour palette value
+- **Current placeholder:** `#39414b`, radius 56 world units
+- **Status:** REQUESTED
+
+### POWER_GAUGE_FILL
+
+- **Subject or role:** Filled extent of the arc gauge, sweeping strictly with the power value (R14.6).
+- **Location of use:** Over the track from its right end. Declared size is band thickness.
+- **Dimensions and format:** n/a - colour palette value
+- **Current placeholder:** `#ffb703`, 11 world units thick
+- **Status:** REQUESTED
+
+### CHIP_BACKGROUND
+
+- **Subject or role:** Plate behind each HUD chip label (`Hole`, `Par`, `Strokes`) of R14.15.
+- **Location of use:** Top-left, pinned to the camera. Declared size is chip height.
+- **Dimensions and format:** n/a - colour palette value
+- **Current placeholder:** `#101418`, chips 46 world units tall
+- **Status:** REQUESTED
+
+### CHIP_TEXT
+
+- **Subject or role:** Label text of the three HUD chips.
+- **Location of use:** Centred in each chip plate. Declared size is text height.
+- **Dimensions and format:** n/a - colour palette value. A supplied bitmap font would remove the
+  canvas-texture step.
+- **Current placeholder:** `#f6f8fb`, 24 world units tall
+- **Status:** REQUESTED
+

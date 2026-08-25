@@ -1,29 +1,27 @@
-// Arena_Registry - Requirement 2.
+// Arena_Registry - Requirement 2, as amended by A-2.
 //
-// All five Arenas are declared here as data from this increment onward (R2.2), whether or not they
-// are playable. Only Arenas 1 and 2 are playable in the delivered scope; Arenas 3, 4 and 5 are
-// descoped but still declared, so the registry shape and the load-time validations are exercised over
-// the full set.
+// A Course is terrain, not a walled rectangle. Each Arena declares its Course width, a sparse list of
+// terrain control points, a tee x and a Hole x; the tee and Hole **y values are derived from the terrain**,
+// so neither can be authored floating in the air or buried underground (R2.1).
 //
-// This module declares Arena data and load-time validation only, and imports exactly the two modules
-// R2.18 permits: the Constants_Module and the geometry module. It declares no physics, world-scale or
-// tuning value of its own (R2.16) - Arena difficulty is expressed purely through geometry.
+// All five Arenas are declared from this increment onward (R2.2), whether or not they are playable. Only
+// Arenas 1 and 2 are playable in the delivered scope; Arenas 3, 4 and 5 are descoped but still declared, so
+// the registry shape and the load-time validations are exercised over the full set.
+//
+// This module declares Arena data and load-time validation only, and imports exactly what R2.18 permits plus
+// the terrain module A-2 adds. It declares no physics, world-scale or tuning value of its own (R2.16) - Arena
+// difficulty is expressed purely through terrain shape and Hole placement.
 //
 // R2.5: adding or retuning an Arena requires a change to this file and to no other.
 
-import {
-  BALL_RADIUS,
-  MIN_WALL_THICKNESS,
-  PLAYFIELD_HEIGHT,
-  PLAYFIELD_WIDTH,
-} from './constants.ts';
+import { BALL_RADIUS, MIN_WALL_THICKNESS, PLAYFIELD_HEIGHT } from './constants.ts';
 import {
   distanceFromPointToRectangle,
-  isPointInsideRectangle,
   rectangleShorterSide,
   type Rectangle,
   type Vector2,
 } from './geometry.ts';
+import { buildTerrain, restingCentreAt, type Terrain } from './terrain.ts';
 
 // ---------------------------------------------------------------------------------------------
 // Types
@@ -33,24 +31,11 @@ import {
 export type ArenaNumber = 1 | 2 | 3 | 4 | 5;
 
 /**
- * R2.1 - per-edge flag stating whether each of the four Playfield edges is walled or open.
+ * R2.11 - a Moving_Obstacle: an axis-aligned rectangle of the given extent whose centre travels the straight
+ * segment from `pathStart` to `pathEnd`.
  *
- * `true` means walled, so the Physics_Engine reflects off it (R6.7). `false` means open, so a Ball
- * whose centre crosses it is out of bounds with no reflection (R6.8).
- */
-export interface PlayfieldEdgeWalls {
-  readonly left: boolean;
-  readonly right: boolean;
-  readonly top: boolean;
-  readonly bottom: boolean;
-}
-
-/**
- * R2.11 - a Moving_Obstacle: an axis-aligned rectangle of the given extent whose centre travels the
- * straight segment from `pathStart` to `pathEnd`.
- *
- * Declared as data only. The Moving_Obstacle is descoped, so nothing advances it, nothing collides
- * with it, nothing draws it and nothing validates it.
+ * Declared as data only. The Moving_Obstacle is descoped, so nothing advances it, nothing collides with it,
+ * nothing draws it and nothing validates it.
  */
 export interface MovingObstacleDeclaration {
   readonly width: number;
@@ -59,19 +44,33 @@ export interface MovingObstacleDeclaration {
   readonly pathEnd: Vector2;
 }
 
-/** One Arena, entirely as data. */
-export interface ArenaDefinition {
+/** What an Arena author writes. */
+interface ArenaSource {
   readonly number: ArenaNumber;
   /** R2.6 - Par for this Arena. Excluded from every Stroke count and every total (R13.12). */
   readonly par: number;
   /** R2.12 - the one new mechanical idea this Arena introduces. Documentation, not behaviour. */
   readonly lesson: string;
-  readonly spawn: Vector2;
-  readonly hole: Vector2;
-  readonly walls: readonly Rectangle[];
+  /** R2.1 - the Course width in world units. Wider than the viewport, so the camera pans (R14.3). */
+  readonly courseWidth: number;
+  /** R2.1, R2.21 - sparse terrain control points with strictly increasing x. */
+  readonly terrainControlPoints: readonly Vector2[];
+  /** R2.1 - the tee's horizontal position. Its height comes from the terrain. */
+  readonly teeX: number;
+  /** R2.1 - the Hole's horizontal position. Its height comes from the terrain. */
+  readonly holeX: number;
+  /** Free-standing axis-aligned obstacles. Empty for every Arena in the delivered scope. */
   readonly obstacles: readonly Rectangle[];
-  readonly edges: PlayfieldEdgeWalls;
   readonly movingObstacle: MovingObstacleDeclaration | null;
+}
+
+/** One Arena, with everything the terrain implies already derived. */
+export interface ArenaDefinition extends ArenaSource {
+  readonly terrain: Terrain;
+  /** R2.1 - the Ball centre resting on the terrain at the tee, derived rather than declared. */
+  readonly spawn: Vector2;
+  /** R2.1 - the Hole, sitting on the terrain surface, derived rather than declared. */
+  readonly hole: Vector2;
 }
 
 /** Raised at load time when an Arena fails a declared validation. Names the Arena and the check. */
@@ -88,153 +87,197 @@ export class ArenaValidationError extends Error {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Playfield
-// ---------------------------------------------------------------------------------------------
-
-/**
- * The Playfield rectangle, anchored at the coordinate origin. Width and height come from the
- * Constants_Module (R4.1); the origin is the definition of the coordinate system rather than a
- * world-scale value, so it is not a Constants_Module concern.
- *
- * The Physics_Engine takes the Playfield bounds and every edge wall flag from this registry (R3.4).
- */
-export const PLAYFIELD_BOUNDS: Rectangle = {
-  minX: 0,
-  minY: 0,
-  maxX: PLAYFIELD_WIDTH,
-  maxY: PLAYFIELD_HEIGHT,
-};
-
-const ALL_EDGES_WALLED: PlayfieldEdgeWalls = {
-  left: true,
-  right: true,
-  top: true,
-  bottom: true,
-};
-
-// ---------------------------------------------------------------------------------------------
 // The five Arenas
 // ---------------------------------------------------------------------------------------------
 
 /**
- * Arena 1 - aiming and power. R2.7: open ground, no interior wall, no obstacle, and an unobstructed
- * straight line from the spawn point to the Hole. Every Playfield edge walled.
+ * Arena 1 - aiming and power.
  *
- * 500 world units of separation against a derived `MAX_CARRY_DISTANCE` near 870, so the Hole is
- * comfortably in range. Capture needs the Ball to still be under `HOLE_CAPTURE_MAX_SPEED` when it
- * crosses the Hole, which puts an upper bound on power as well as a lower one - the Arena's whole
- * lesson.
+ * Gently rolling ground falling away from the tee, with the Hole sitting in a shallow bowl about 1000 world
+ * units out. A full-power Shot carries roughly 1289 units, so the Hole is comfortably in range of one big
+ * Shot and the bowl gathers a Ball that lands near it - which is what makes Par 2 honest rather than
+ * generous. The lesson is entirely in choosing a power: too little falls short of the bowl, too much runs
+ * through it and up the far bank.
  */
-const ARENA_1: ArenaDefinition = {
+const ARENA_1: ArenaSource = {
   number: 1,
   par: 2,
   lesson: 'aiming and power',
-  spawn: { x: 200, y: 300 },
-  hole: { x: 700, y: 300 },
-  walls: [],
+  courseWidth: 1600,
+  teeX: 150,
+  holeX: 1150,
+  terrainControlPoints: [
+    { x: 0, y: 210 },
+    { x: 150, y: 205 },
+    { x: 420, y: 245 },
+    { x: 700, y: 215 },
+    { x: 950, y: 190 },
+    { x: 1050, y: 170 },
+    { x: 1150, y: 110 },
+    { x: 1280, y: 175 },
+    { x: 1450, y: 220 },
+    { x: 1600, y: 240 },
+  ],
   obstacles: [],
-  edges: ALL_EDGES_WALLED,
   movingObstacle: null,
 };
 
 /**
- * Arena 2 - bank shots, and the one Arena carrying an open Playfield edge (R2.19, D-18).
+ * Arena 2 - carrying a rise.
  *
- * The wall hangs from the top edge down to y=60, leaving a 60-unit gap along the bottom. R2.8: it
- * intersects the straight line between the spawn point and the Hole, which both sit at y=100, so a
- * flat shot strikes the wall's left face. Nothing passes above the wall because it meets the top
- * edge, so the bottom gap is the only way through, and reaching the Hole from there needs a
- * reflection off the bottom edge.
+ * A hill crest stands between the tee and the Hole, climbing out of a shallow dip to about 105 world units
+ * above the tee line across the 500 that lead up to it. A Shot that is too flat or too weak strikes the face
+ * and stops short; clearing the crest needs both height and power, and the Hole then sits in a bowl on the
+ * far side, 1200 units from the tee.
  *
- * The **right edge is open**. That is what makes `OUT_OF_BOUNDS` reachable through play at all in the
- * delivered scope: Arena 1 is fully walled and Arenas 3, 4 and 5 are descoped, so with every edge
- * walled the frozen Status_Token value would have gone dead. It also fits the Arena's lesson rather
- * than fighting it - the punishment for over-hitting a bank shot is losing the Ball off the far side.
+ * R2.21 caps the terrain at half the viewport height, so the crest tops out at 295 rather than the taller
+ * ridge the first sketch used: the climb is read relative to the dip in front of it, which keeps the lesson
+ * while leaving room above the ground for the arc that clears it.
+ *
+ * This replaces the wall-and-bank-shot lesson the top-down build used. R2.8's requirement that the Hole not
+ * be reachable in a straight line is satisfied by the terrain itself rather than by an interior wall.
  */
-const ARENA_2: ArenaDefinition = {
+const ARENA_2: ArenaSource = {
   number: 2,
   par: 3,
-  lesson: 'bank shots',
-  spawn: { x: 200, y: 100 },
-  hole: { x: 760, y: 100 },
-  walls: [{ minX: 470, minY: 60, maxX: 500, maxY: PLAYFIELD_HEIGHT }],
+  lesson: 'carrying a rise',
+  courseWidth: 1800,
+  teeX: 150,
+  holeX: 1350,
+  terrainControlPoints: [
+    { x: 0, y: 185 },
+    { x: 200, y: 190 },
+    { x: 500, y: 240 },
+    { x: 700, y: 295 },
+    { x: 900, y: 268 },
+    { x: 1100, y: 225 },
+    { x: 1250, y: 195 },
+    { x: 1350, y: 140 },
+    { x: 1470, y: 210 },
+    { x: 1650, y: 248 },
+    { x: 1800, y: 262 },
+  ],
   obstacles: [],
-  edges: { left: true, right: false, top: true, bottom: true },
   movingObstacle: null,
 };
 
 /**
  * Arena 3 - precision. **Descoped**: declared as data, not playable, no Verification_Flow.
  *
- * Two wall slabs leave a 60-unit corridor at mid-height, above `MIN_CORRIDOR_WIDTH`. Both slabs run
- * to a Playfield edge, so the corridor cannot be bypassed. R2.17's corridor clear-width validation is
- * descoped, so nothing checks that width mechanically.
+ * A narrow plateau with steep drops either side, so the Hole has to be landed on rather than rolled to.
  */
-const ARENA_3: ArenaDefinition = {
+const ARENA_3: ArenaSource = {
   number: 3,
   par: 3,
   lesson: 'precision over power',
-  spawn: { x: 120, y: 300 },
-  hole: { x: 880, y: 300 },
-  walls: [
-    { minX: 400, minY: 0, maxX: 600, maxY: 270 },
-    { minX: 400, minY: 330, maxX: 600, maxY: PLAYFIELD_HEIGHT },
+  courseWidth: 1700,
+  teeX: 140,
+  holeX: 1200,
+  terrainControlPoints: [
+    { x: 0, y: 200 },
+    { x: 200, y: 195 },
+    { x: 600, y: 170 },
+    { x: 820, y: 90 },
+    { x: 1000, y: 80 },
+    { x: 1080, y: 288 },
+    { x: 1200, y: 295 },
+    { x: 1320, y: 288 },
+    { x: 1420, y: 100 },
+    { x: 1700, y: 120 },
   ],
   obstacles: [],
-  edges: ALL_EDGES_WALLED,
   movingObstacle: null,
 };
 
 /**
  * Arena 4 - approach angle. **Descoped**: declared as data, not playable, no Verification_Flow.
  *
- * A free-standing obstacle sits across the straight line from the spawn point to the Hole, so the
- * Hole has to be approached from the side rather than head on.
+ * A free-standing obstacle stands over the Hole, so it has to be approached from the side rather than head on.
+ * The obstacle keeps the rectangle treatment R3.6 through R3.8 already declared.
  */
-const ARENA_4: ArenaDefinition = {
+const ARENA_4: ArenaSource = {
   number: 4,
   par: 4,
   lesson: 'approach angle',
-  spawn: { x: 150, y: 480 },
-  hole: { x: 820, y: 150 },
-  walls: [],
-  obstacles: [{ minX: 600, minY: 80, maxX: 700, maxY: 300 }],
-  edges: ALL_EDGES_WALLED,
+  courseWidth: 1900,
+  teeX: 150,
+  holeX: 1400,
+  terrainControlPoints: [
+    { x: 0, y: 230 },
+    { x: 250, y: 240 },
+    { x: 650, y: 292 },
+    { x: 1000, y: 260 },
+    { x: 1300, y: 200 },
+    { x: 1400, y: 160 },
+    { x: 1520, y: 215 },
+    { x: 1700, y: 250 },
+    { x: 1900, y: 260 },
+  ],
+  obstacles: [{ minX: 1240, minY: 320, maxX: 1340, maxY: 460 }],
   movingObstacle: null,
 };
 
 /**
  * Arena 5 - timing. **Descoped**: declared as data, not playable, no Verification_Flow.
  *
- * Exactly one Moving_Obstacle, its path a straight vertical segment parallel to the left and right
- * Playfield edges, both endpoints placed so the obstacle lies entirely inside the Playfield along the
- * whole path. Nothing advances it, nothing collides with it and nothing draws it.
+ * Exactly one Moving_Obstacle, its path a straight vertical segment. Nothing advances it, nothing collides
+ * with it and nothing draws it.
  */
-const ARENA_5: ArenaDefinition = {
+const ARENA_5: ArenaSource = {
   number: 5,
   par: 4,
   lesson: 'timing',
-  spawn: { x: 150, y: 300 },
-  hole: { x: 850, y: 300 },
-  walls: [],
+  courseWidth: 2000,
+  teeX: 160,
+  holeX: 1500,
+  terrainControlPoints: [
+    { x: 0, y: 220 },
+    { x: 300, y: 230 },
+    { x: 700, y: 210 },
+    { x: 1100, y: 240 },
+    { x: 1400, y: 195 },
+    { x: 1500, y: 150 },
+    { x: 1620, y: 205 },
+    { x: 1800, y: 235 },
+    { x: 2000, y: 245 },
+  ],
   obstacles: [],
-  edges: ALL_EDGES_WALLED,
   movingObstacle: {
     width: 40,
     height: 160,
-    pathStart: { x: 500, y: 120 },
-    pathEnd: { x: 500, y: 480 },
+    pathStart: { x: 900, y: 320 },
+    pathEnd: { x: 900, y: 560 },
   },
 };
 
+/** Derives the terrain, the spawn and the Hole from an authored Arena. */
+function buildArena(source: ArenaSource): ArenaDefinition {
+  const terrain = buildTerrain(source.terrainControlPoints);
+  return {
+    ...source,
+    terrain,
+    // R2.1 - the Ball rests on the surface at the tee, offset along the terrain normal so it sits on a slope
+    // correctly rather than merely above it in y.
+    spawn: restingCentreAt(terrain, source.teeX, BALL_RADIUS),
+    // The Hole is a point on the surface itself.
+    hole: { x: source.holeX, y: terrain.heightAt(source.holeX) },
+  };
+}
+
 /** R2.2 - all five Arenas, in Course order. */
-export const ARENAS: readonly ArenaDefinition[] = [ARENA_1, ARENA_2, ARENA_3, ARENA_4, ARENA_5];
+export const ARENAS: readonly ArenaDefinition[] = [
+  ARENA_1,
+  ARENA_2,
+  ARENA_3,
+  ARENA_4,
+  ARENA_5,
+].map(buildArena);
 
 /**
  * The Arenas that are playable in the delivered scope, in Course order.
  *
- * Arenas 3, 4 and 5 are descoped. This is the set R1.26's start-arena selector falls back out of, and
- * the set the Course of R1.6 and R1.8 runs over.
+ * Arenas 3, 4 and 5 are descoped. This is the set R1.26's start-arena selector falls back out of, and the set
+ * the Course of R1.6 and R1.8 runs over.
  */
 export const PLAYABLE_ARENA_NUMBERS: readonly ArenaNumber[] = [1, 2];
 
@@ -277,102 +320,92 @@ export function nextPlayableArenaNumber(arenaNumber: ArenaNumber): ArenaNumber |
 // ---------------------------------------------------------------------------------------------
 // Load-time validation
 //
-// Only the two validations tasks.md keeps are implemented. R2.14's reachability check needs a
-// shortest-obstacle-free-path computation rather than a distance comparison and is descoped, moving
-// to a recorded hand-check for Arenas 1 and 2. R2.17's corridor clear width and R2.20's
-// Moving_Obstacle Hole clearance are descoped with Arenas 3 and 5.
+// Only the validations tasks.md keeps, as amended by A-2. R2.14's reachability check needs a trajectory
+// search rather than a distance comparison and is descoped, moving to a recorded hand-check for Arenas 1 and
+// 2. R2.17's corridor clear width and R2.20's Moving_Obstacle Hole clearance are descoped with Arenas 3 and 5.
 // ---------------------------------------------------------------------------------------------
 
-const R2_13 = 'R2.13 every wall and obstacle has a shorter side of at least MIN_WALL_THICKNESS';
+const R2_13 = 'R2.13 every obstacle has a shorter side of at least MIN_WALL_THICKNESS';
 const R2_15 =
-  'R2.15 the spawn point and the Hole lie inside the Playfield with at least BALL_RADIUS clearance from every wall and every static obstacle';
-
-function validateRectangleThickness(
-  arena: ArenaDefinition,
-  rect: Rectangle,
-  kind: string,
-  index: number,
-): void {
-  const shorterSide = rectangleShorterSide(rect);
-  if (shorterSide < MIN_WALL_THICKNESS) {
-    throw new ArenaValidationError(
-      arena.number,
-      R2_13,
-      `${kind} at index ${String(index)} has a shorter side of ${String(shorterSide)} world units, below MIN_WALL_THICKNESS of ${String(MIN_WALL_THICKNESS)}.`,
-    );
-  }
-}
+  'R2.15 the tee and the Hole lie within the Course and clear every obstacle by at least BALL_RADIUS';
+const R2_21 = 'R2.21 the terrain spans the whole Course and stays within the viewport height';
 
 function validatePointClearance(
   arena: ArenaDefinition,
   point: Vector2,
   pointName: string,
 ): void {
-  if (!isPointInsideRectangle(point, PLAYFIELD_BOUNDS)) {
+  if (point.x < 0 || point.x > arena.courseWidth) {
     throw new ArenaValidationError(
       arena.number,
       R2_15,
-      `the ${pointName} at (${String(point.x)}, ${String(point.y)}) lies outside the Playfield.`,
+      `the ${pointName} at x ${String(point.x)} lies outside the Course, which spans 0 to ${String(arena.courseWidth)}.`,
     );
   }
 
-  const clearanceFromBoundary = Math.min(
-    point.x - PLAYFIELD_BOUNDS.minX,
-    PLAYFIELD_BOUNDS.maxX - point.x,
-    point.y - PLAYFIELD_BOUNDS.minY,
-    PLAYFIELD_BOUNDS.maxY - point.y,
-  );
-  if (clearanceFromBoundary < BALL_RADIUS) {
-    throw new ArenaValidationError(
-      arena.number,
-      R2_15,
-      `the ${pointName} at (${String(point.x)}, ${String(point.y)}) clears the Playfield boundary by ${String(clearanceFromBoundary)} world units, below BALL_RADIUS of ${String(BALL_RADIUS)}.`,
-    );
-  }
-
-  const surfaces: readonly { readonly kind: string; readonly rect: Rectangle }[] = [
-    ...arena.walls.map((rect) => ({ kind: 'wall', rect })),
-    ...arena.obstacles.map((rect) => ({ kind: 'obstacle', rect })),
-  ];
-
-  for (const [index, surface] of surfaces.entries()) {
-    const clearance = distanceFromPointToRectangle(point, surface.rect);
+  for (const [index, obstacle] of arena.obstacles.entries()) {
+    const clearance = distanceFromPointToRectangle(point, obstacle);
     if (clearance < BALL_RADIUS) {
       throw new ArenaValidationError(
         arena.number,
         R2_15,
-        `the ${pointName} at (${String(point.x)}, ${String(point.y)}) clears ${surface.kind} at index ${String(index)} by ${String(clearance)} world units, below BALL_RADIUS of ${String(BALL_RADIUS)}.`,
+        `the ${pointName} at (${point.x.toFixed(1)}, ${point.y.toFixed(1)}) clears obstacle ${String(index)} by ${clearance.toFixed(2)} world units, below BALL_RADIUS of ${String(BALL_RADIUS)}.`,
       );
     }
   }
 }
 
 /**
- * Runs every kept load-time validation against one Arena, raising an {@link ArenaValidationError}
- * naming the failing Arena and the failed validation on the first failure.
+ * Runs every kept load-time validation against one Arena, raising an {@link ArenaValidationError} naming the
+ * failing Arena and the failed validation on the first failure.
  *
- * Exported so the same checks can be run against a deliberately corrupted definition without
- * reloading the module.
+ * Exported so the same checks can be run against a deliberately corrupted definition without reloading.
  */
 export function validateArena(arena: ArenaDefinition): void {
-  for (const [index, wall] of arena.walls.entries()) {
-    validateRectangleThickness(arena, wall, 'wall', index);
-  }
   for (const [index, obstacle] of arena.obstacles.entries()) {
-    validateRectangleThickness(arena, obstacle, 'obstacle', index);
+    const shorterSide = rectangleShorterSide(obstacle);
+    if (shorterSide < MIN_WALL_THICKNESS) {
+      throw new ArenaValidationError(
+        arena.number,
+        R2_13,
+        `obstacle at index ${String(index)} has a shorter side of ${String(shorterSide)} world units, below MIN_WALL_THICKNESS of ${String(MIN_WALL_THICKNESS)}.`,
+      );
+    }
   }
 
-  validatePointClearance(arena, arena.spawn, 'spawn point');
+  // R2.21 - the terrain must cover the whole Course, or a Ball could run off the end of the ground while
+  // still inside the Course and fall for ever.
+  if (arena.terrain.minX > 0 || arena.terrain.maxX < arena.courseWidth) {
+    throw new ArenaValidationError(
+      arena.number,
+      R2_21,
+      `the terrain spans x ${String(arena.terrain.minX)} to ${String(arena.terrain.maxX)}, which does not cover the Course from 0 to ${String(arena.courseWidth)}.`,
+    );
+  }
+
+  // The ground has to leave room above it for a Shot to arc through, and must not sit below the world floor.
+  if (arena.terrain.lowestHeight < 0) {
+    throw new ArenaValidationError(
+      arena.number,
+      R2_21,
+      `the terrain falls to ${arena.terrain.lowestHeight.toFixed(1)}, below the world floor at 0.`,
+    );
+  }
+  if (arena.terrain.highestHeight > PLAYFIELD_HEIGHT / 2) {
+    throw new ArenaValidationError(
+      arena.number,
+      R2_21,
+      `the terrain rises to ${arena.terrain.highestHeight.toFixed(1)}, above half the viewport height of ${String(PLAYFIELD_HEIGHT)}, leaving too little room above it to arc a Shot.`,
+    );
+  }
+
+  validatePointClearance(arena, arena.spawn, 'tee');
   validatePointClearance(arena, arena.hole, 'Hole position');
 }
 
 /**
- * Declaration invariants: cheap consistency checks on what the registry itself states, kept separate
- * from the two R2 validations above because they guard the declarations rather than the layout.
- *
- * R2.19 is the load-bearing one. D-18 moved the single open Playfield edge from Arena 4 to Arena 2,
- * and if a later edit walled Arena 2's right edge, `OUT_OF_BOUNDS` would silently become unreachable
- * and task 13's acceptance condition would fail for a reason nothing else would explain.
+ * Declaration invariants: cheap consistency checks on what the registry itself states, kept separate from the
+ * R2 validations above because they guard the declarations rather than the terrain.
  */
 function validateRegistryDeclarations(): void {
   const declaredParByArena: readonly (readonly [ArenaNumber, number])[] = [
@@ -394,27 +427,28 @@ function validateRegistryDeclarations(): void {
     }
   }
 
+  // A Course narrower than the viewport would make the panning camera pointless, and A-2's whole premise is
+  // that a hole is longer than one screen.
   for (const arena of ARENAS) {
-    const openEdgeCount = [
-      arena.edges.left,
-      arena.edges.right,
-      arena.edges.top,
-      arena.edges.bottom,
-    ].filter((walled) => !walled).length;
-    const expectedOpenEdgeCount = arena.number === 2 ? 1 : 0;
-
-    if (openEdgeCount !== expectedOpenEdgeCount) {
+    if (arena.courseWidth <= PLAYFIELD_HEIGHT) {
       throw new ArenaValidationError(
         arena.number,
-        'R2.19 exactly one Playfield edge of Arena 2 is open and every edge of every other Arena is walled',
-        `${String(openEdgeCount)} edges are declared open where ${String(expectedOpenEdgeCount)} is required.`,
+        'R2.1 the Course is wider than the viewport',
+        `the Course is ${String(arena.courseWidth)} world units wide.`,
+      );
+    }
+    if (arena.holeX <= arena.teeX) {
+      throw new ArenaValidationError(
+        arena.number,
+        'R2.1 the Hole lies downcourse of the tee',
+        `the tee is at x ${String(arena.teeX)} and the Hole at x ${String(arena.holeX)}.`,
       );
     }
   }
 }
 
-// R2.15 - validation runs at module load, before any Arena is rendered and before any Shot is
-// simulated. Importing this module is therefore the whole gate; nothing has to remember to call it.
+// R2.15 - validation runs at module load, before any Arena is rendered and before any Shot is simulated.
+// Importing this module is therefore the whole gate; nothing has to remember to call it.
 validateRegistryDeclarations();
 for (const arena of ARENAS) {
   validateArena(arena);

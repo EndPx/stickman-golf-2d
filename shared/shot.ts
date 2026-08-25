@@ -28,8 +28,7 @@ import {
   type ArenaCollision,
   type BallState,
 } from './physics.ts';
-import { isPointInsideRectangle, type Vector2 } from './geometry.ts';
-import { PLAYFIELD_BOUNDS } from './arenas.ts';
+import type { Vector2 } from './geometry.ts';
 
 /**
  * R8.11 - the closed set of Shot rejection reasons. Spelling and casing are frozen for the lifetime of
@@ -127,7 +126,9 @@ export function clampPowerPercent(powerPercent: number): number {
  * action, which is why the response is an anomaly rather than a rejection.
  */
 export function isLegalPreShotPosition(collision: ArenaCollision, position: Vector2): boolean {
-  if (!isPointInsideRectangle(position, PLAYFIELD_BOUNDS)) {
+  // A-2 - the Course, not a Playfield rectangle. A Ball outside it in x is already out of bounds, and there is
+  // no upper or lower bound to test: contact resolution keeps the Ball on the surface every step.
+  if (position.x < 0 || position.x > collision.arena.courseWidth) {
     return false;
   }
   const bound = BALL_RADIUS - MAX_PENETRATION_TOLERANCE;
@@ -185,6 +186,9 @@ export function shoot(
       subThresholdSteps: 0,
       stepsSinceLaunch: 0,
       preShotPosition,
+      // The Ball leaves the tee touching the ground. The first step's contact resolution decides whether it
+      // stays that way, which is what selects rolling friction for a putt and air friction for a lofted Shot.
+      grounded: true,
       outcome: 'IN_MOTION',
     },
   };

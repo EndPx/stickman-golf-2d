@@ -31,10 +31,14 @@ function requireInvariant(condition: boolean, invariant: string, detail: string)
 // World scale
 // ---------------------------------------------------------------------------------------------
 
-/** R4.1 - Playfield width in world units. */
+/**
+ * R4.1, amended by A-2 - the **viewport** width in world units, not the width of a Course.
+ *
+ * A Course is wider than this and the camera pans along it (R14.3). Course width is per-Arena data (R2.1).
+ */
 export const PLAYFIELD_WIDTH = 1000;
 
-/** R4.1 - Playfield height in world units. */
+/** R4.1, amended by A-2 - the viewport height in world units. */
 export const PLAYFIELD_HEIGHT = 600;
 
 /** R4.2 - Ball radius in world units. */
@@ -81,11 +85,20 @@ export const POWER_MIN_PERCENT = 10;
 /** R4.4 - highest selectable power value, in percent. */
 export const POWER_MAX_PERCENT = 100;
 
-/** R4.5 - launch speed at {@link POWER_MIN_PERCENT}, in world units per second. */
-export const MIN_LAUNCH_SPEED = 60;
+/** R4.5, re-tuned by A-2 - launch speed at {@link POWER_MIN_PERCENT}, in world units per second. */
+export const MIN_LAUNCH_SPEED = 150;
 
-/** R4.5 - launch speed at {@link POWER_MAX_PERCENT}, in world units per second. */
-export const MAX_LAUNCH_SPEED = 800;
+/**
+ * R4.5, re-tuned by A-2 - launch speed at {@link POWER_MAX_PERCENT}, in world units per second.
+ *
+ * Chosen against {@link GRAVITY} for the carry a full-power Shot should produce: the level-ground range of a
+ * 45 degree launch is `v squared over g`, which at 1100 and 900 is about 1344 world units. That is most of
+ * a Course but not all of it, so full power is a real choice rather than a default.
+ *
+ * Q-6's reasoning for raising this ceiling still holds. The 800 it produced does not survive the addition of
+ * gravity, because that number was sized for rolling carry on a 1000-unit field with no vertical component.
+ */
+export const MAX_LAUNCH_SPEED = 1100;
 
 /**
  * R4.5 - the power-to-launch-speed mapping. Linear and strictly increasing across the closed
@@ -107,16 +120,57 @@ export function launchSpeedForPower(powerPercent: number): number {
 // ---------------------------------------------------------------------------------------------
 
 /**
- * R4.6 - dimensionless per-Simulation_Step velocity multiplier, strictly above 0 and strictly
- * below 1. Applied exactly once per step, before that step's position integration (R3.5).
+ * R4.34, added by A-2 - downward acceleration in world units per second squared.
+ *
+ * Applied to the vertical velocity once per Simulation_Step, before friction and before integration (R3.19).
  */
-export const FRICTION_PER_STEP = 0.985;
+export const GRAVITY = 900;
 
 /**
- * R4.7 - dimensionless multiplier on the velocity component perpendicular to a contacted surface,
- * at or above 0 and at or below 1.
+ * R4.6, replaced by A-2 - per-Simulation_Step velocity multiplier while the Ball is in contact with the
+ * terrain. Strictly above 0 and at or below 1.
+ *
+ * Higher than the old single friction constant, because gravity now does the work of stopping a Ball that
+ * rolls uphill and this only has to bleed off a Ball rolling along the flat.
  */
-export const WALL_RESTITUTION = 0.7;
+export const ROLLING_FRICTION_PER_STEP = 0.99;
+
+/**
+ * R4.6, replaced by A-2 - per-Simulation_Step velocity multiplier while the Ball is airborne.
+ *
+ * Nearly 1: a golf ball in flight loses far less speed to air than a ball rolling loses to turf, and making
+ * this too aggressive turns every arc into a stone drop.
+ */
+export const AIR_FRICTION_PER_STEP = 0.9995;
+
+/**
+ * R4.7, renamed by A-2 - dimensionless multiplier on the velocity component perpendicular to a contacted
+ * surface, at or above 0 and at or below 1.
+ *
+ * Turf is a dead surface, so this is much lower than the old wall value: a Ball landing on a fairway should
+ * check up and start running, not ricochet.
+ */
+export const TERRAIN_RESTITUTION = 0.35;
+
+/**
+ * R4.35, added by A-2 - normal-direction speed below which contact resolution zeroes the perpendicular
+ * component instead of reflecting it, in world units per second.
+ *
+ * Load-bearing rather than cosmetic. Without it a Ball resting on a slope bounces forever at ever-smaller
+ * amplitude: each reflection returns `TERRAIN_RESTITUTION` of the normal speed gravity added on the way down,
+ * so the speed never reaches zero, the rest debounce never completes, and the Status_Token never leaves
+ * `BALL_MOVING` until the R5.11 valve fires fifteen simulated seconds later.
+ */
+export const BOUNCE_MIN_NORMAL_SPEED = 40;
+
+/**
+ * R4.36, added by A-2 - horizontal spacing at which the Renderer samples the interpolated terrain, in world
+ * units.
+ *
+ * A rendering quantity only. The Physics_Engine evaluates the interpolation analytically and samples nothing,
+ * so changing this alters how the ground looks and never how it plays.
+ */
+export const TERRAIN_RENDER_SAMPLE_SPACING = 6;
 
 /** R4.8 - speed below which a Ball counts toward the rest debounce, in world units per second. */
 export const REST_SPEED_THRESHOLD = 5;
@@ -196,25 +250,49 @@ export const DISCONNECT_NOTICE_SECONDS = 4;
 // ---------------------------------------------------------------------------------------------
 // Load-time invariants
 //
-// These run before MAX_CARRY_DISTANCE is derived, because that derivation loops on
-// FRICTION_PER_STEP and REST_SPEED_THRESHOLD and would not terminate if either were wrong.
+// These run before MAX_CARRY_DISTANCE is derived, because that derivation integrates a trajectory and
+// would not terminate if gravity or the frictions were wrong.
 // ---------------------------------------------------------------------------------------------
 
 requireInvariant(
-  FRICTION_PER_STEP > 0 && FRICTION_PER_STEP < 1,
-  'R4.6 FRICTION_PER_STEP lies strictly above 0 and strictly below 1',
-  `FRICTION_PER_STEP is ${String(FRICTION_PER_STEP)}.`,
+  ROLLING_FRICTION_PER_STEP > 0 && ROLLING_FRICTION_PER_STEP <= 1,
+  'R4.6 ROLLING_FRICTION_PER_STEP lies strictly above 0 and at or below 1',
+  `ROLLING_FRICTION_PER_STEP is ${String(ROLLING_FRICTION_PER_STEP)}.`,
 );
 
 requireInvariant(
-  WALL_RESTITUTION >= 0 && WALL_RESTITUTION <= 1,
-  'R4.7 WALL_RESTITUTION lies at or above 0 and at or below 1',
-  `WALL_RESTITUTION is ${String(WALL_RESTITUTION)}.`,
+  AIR_FRICTION_PER_STEP > 0 && AIR_FRICTION_PER_STEP <= 1,
+  'R4.6 AIR_FRICTION_PER_STEP lies strictly above 0 and at or below 1',
+  `AIR_FRICTION_PER_STEP is ${String(AIR_FRICTION_PER_STEP)}.`,
+);
+
+requireInvariant(
+  TERRAIN_RESTITUTION >= 0 && TERRAIN_RESTITUTION <= 1,
+  'R4.7 TERRAIN_RESTITUTION lies at or above 0 and at or below 1',
+  `TERRAIN_RESTITUTION is ${String(TERRAIN_RESTITUTION)}.`,
+);
+
+requireInvariant(
+  GRAVITY > 0,
+  'R4.34 GRAVITY is strictly above 0, so a Shot comes down and the carry derivation terminates',
+  `GRAVITY is ${String(GRAVITY)}.`,
+);
+
+requireInvariant(
+  BOUNCE_MIN_NORMAL_SPEED > REST_SPEED_THRESHOLD,
+  'R4.35 BOUNCE_MIN_NORMAL_SPEED is strictly above REST_SPEED_THRESHOLD, so a settling Ball stops bouncing before it is declared at rest',
+  `BOUNCE_MIN_NORMAL_SPEED is ${String(BOUNCE_MIN_NORMAL_SPEED)} and REST_SPEED_THRESHOLD is ${String(REST_SPEED_THRESHOLD)}.`,
+);
+
+requireInvariant(
+  TERRAIN_RENDER_SAMPLE_SPACING > 0,
+  'R4.36 TERRAIN_RENDER_SAMPLE_SPACING is strictly above 0',
+  `TERRAIN_RENDER_SAMPLE_SPACING is ${String(TERRAIN_RENDER_SAMPLE_SPACING)}.`,
 );
 
 requireInvariant(
   REST_SPEED_THRESHOLD > 0,
-  'R4.16 REST_SPEED_THRESHOLD is strictly above 0 so the carry derivation terminates',
+  'R4.16 REST_SPEED_THRESHOLD is strictly above 0',
   `REST_SPEED_THRESHOLD is ${String(REST_SPEED_THRESHOLD)}.`,
 );
 
@@ -301,38 +379,49 @@ requireInvariant(
 // Derived carry bound
 // ---------------------------------------------------------------------------------------------
 
+/** The launch angle that maximises range over level ground, in degrees. A fact of ballistics, not a tuning value. */
+const OPTIMAL_LAUNCH_ANGLE_DEGREES = 45;
+
 /**
- * R4.16 - the Carry_Distance a Shot at {@link POWER_MAX_PERCENT} produces on an unobstructed line,
- * derived at load time rather than declared as a literal.
+ * R4.16, amended by A-2 - the horizontal Carry_Distance a Shot at {@link POWER_MAX_PERCENT} produces over
+ * level ground, launched at the range-maximising 45 degrees, derived at load time rather than declared.
  *
- * The loop applies the R3.14 per-step order exactly: multiply velocity by {@link FRICTION_PER_STEP}
- * (operation 2), then displace by the velocity that multiplication left, times
- * {@link FIXED_STEP_SECONDS} (operation 3). It stops once speed has fallen below
- * {@link REST_SPEED_THRESHOLD}, counting the displacement of the step on which it first does, because
- * that step's displacement happens before R3.14 operation 7 observes the sub-threshold speed.
+ * No longer a rolling distance. It is integrated step by step in the same order R3.14 declares - gravity,
+ * then friction, then displacement - rather than from the closed-form `v squared over g`, so that the number
+ * an Arena designer works against is the one the Physics_Engine will actually produce, air friction included.
  *
- * The three {@link REST_DEBOUNCE_STEPS} that follow before R5.6 zeroes the velocity add well under
- * one world unit and are excluded, because R4.16 stops the accumulation at the threshold crossing.
+ * Accumulation stops when the Ball returns to its launch height, which is what makes this a carry rather
+ * than a total distance: what happens after the landing depends on the terrain, and no constant can know it.
  *
- * Guarded against non-termination by the `FRICTION_PER_STEP < 1` and `REST_SPEED_THRESHOLD > 0`
- * invariants asserted above.
+ * Guarded against non-termination by the `GRAVITY > 0` invariant above: a Ball launched upward under positive
+ * gravity always comes back down.
  */
 export const MAX_CARRY_DISTANCE = ((): number => {
-  let speed = launchSpeedForPower(POWER_MAX_PERCENT);
+  const speed = launchSpeedForPower(POWER_MAX_PERCENT);
+  const radians = (OPTIMAL_LAUNCH_ANGLE_DEGREES * Math.PI) / 180;
+  let velocityX = Math.cos(radians) * speed;
+  let velocityY = Math.sin(radians) * speed;
   let carry = 0;
-  for (;;) {
-    speed *= FRICTION_PER_STEP;
-    carry += speed * FIXED_STEP_SECONDS;
-    if (speed < REST_SPEED_THRESHOLD) {
+  let height = 0;
+
+  for (let step = 0; step < MAX_SHOT_DURATION_STEPS; step += 1) {
+    velocityY -= GRAVITY * FIXED_STEP_SECONDS;
+    velocityX *= AIR_FRICTION_PER_STEP;
+    velocityY *= AIR_FRICTION_PER_STEP;
+    carry += velocityX * FIXED_STEP_SECONDS;
+    height += velocityY * FIXED_STEP_SECONDS;
+    if (height <= 0) {
       return carry;
     }
   }
+  return carry;
 })();
 
-// R4.16 read against R4.1 - a full-power Shot must not be able to clear the Playfield's long axis
-// several times over, or the carry bound tells an Arena designer nothing.
+// R4.16 read against R4.1 - a full-power Shot should carry more than one viewport width, or a Course cannot
+// be wider than the viewport without being tedious, and less than three, or the carry bound tells an Arena
+// designer nothing useful.
 requireInvariant(
-  MAX_CARRY_DISTANCE > 0 && MAX_CARRY_DISTANCE < 2 * PLAYFIELD_WIDTH,
-  'R4.16 the derived MAX_CARRY_DISTANCE is positive and under two Playfield widths',
+  MAX_CARRY_DISTANCE > PLAYFIELD_WIDTH && MAX_CARRY_DISTANCE < 3 * PLAYFIELD_WIDTH,
+  'R4.16 the derived MAX_CARRY_DISTANCE lies between one and three viewport widths',
   `MAX_CARRY_DISTANCE derived as ${String(MAX_CARRY_DISTANCE)} against a PLAYFIELD_WIDTH of ${String(PLAYFIELD_WIDTH)}.`,
 );

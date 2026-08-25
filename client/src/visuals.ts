@@ -1,4 +1,4 @@
-// Asset_Registry, simplified - Requirement 16.
+// Asset_Registry, simplified - Requirement 16, as amended by A-2.
 //
 // The full Requirement 16 registry carried per-key asset file references, anchor points and a
 // load-failure fallback. That is over-built for two days, so it is reduced to what the Renderer actually
@@ -11,6 +11,12 @@
 // its anomaly entry (R16.10). Because R16.10's anomaly path no longer exists, R15.35's exemption for
 // asset-load anomalies is moot and every anomaly a Verification_Flow observes is fatal.
 //
+// A-2 rewrote the element list with R14.4: the Playfield rectangle, its border and the walls are gone -
+// the Course is now terrain under a sky, with parallax scenery - and the power bar became an arc gauge.
+// The keys those elements used are removed rather than retained, because a frozen spelling protects
+// external bindings, and the Debug_Overlay contract is the only external binding here; the palette is
+// internal to the Renderer. docs/asset-requests.md records the withdrawal alongside the new entries.
+//
 // On R4.18: the drawn sizes below are world-unit quantities, which would normally belong to the
 // Constants_Module. R16.9 assigns "a drawn size in world units" to the Asset_Registry explicitly, so
 // this is the declaration site the spec names for them. No physics, simulation-timing or gameplay
@@ -18,18 +24,26 @@
 
 /** Every keyed visual the Renderer draws. Spelling is frozen for the lifetime of the project (R16.1). */
 export type AssetKey =
-  | 'PLAYFIELD_INTERIOR'
-  | 'PLAYFIELD_BORDER'
-  | 'OUTSIDE_PLAYFIELD'
-  | 'WALL'
-  | 'OBSTACLE'
+  | 'SKY'
+  | 'CLOUD'
+  | 'MOUNTAIN_FAR'
+  | 'MOUNTAIN_NEAR'
+  | 'PINE'
+  | 'TERRAIN_GRASS'
+  | 'TERRAIN_SOIL'
+  | 'TERRAIN_EDGE'
   | 'HOLE'
+  | 'FLAG_POLE'
+  | 'FLAG_CLOTH'
+  | 'OBSTACLE'
   | 'BALL_P1'
   | 'BALL_P2'
+  | 'STICKMAN'
   | 'AIM_INDICATOR'
-  | 'POWER_INDICATOR_TRACK'
-  | 'POWER_INDICATOR_FILL'
-  | 'PAR_LABEL';
+  | 'POWER_GAUGE_TRACK'
+  | 'POWER_GAUGE_FILL'
+  | 'CHIP_BACKGROUND'
+  | 'CHIP_TEXT';
 
 interface AssetDeclaration {
   /** Colour palette value, as a hexadecimal RGB integer. */
@@ -37,24 +51,38 @@ interface AssetDeclaration {
   /**
    * Drawn size in world units, where the element's size is not derived from the Arena_Registry.
    *
-   * `null` for anything whose extent comes from Arena geometry - the Playfield, the walls, the
-   * obstacles, the Hole and the Ball all take their size from the registry or the Constants_Module, and
-   * a size here would be a second source of truth (R2.3).
+   * `null` for anything whose extent comes from Arena geometry - the terrain surface, the obstacles,
+   * the Hole and the Ball all take their size from the registry or the Constants_Module, and a size
+   * here would be a second source of truth (R2.3). Which dimension a size denotes is stated per entry.
    */
   readonly drawnSize: number | null;
 }
 
 const ASSETS: Readonly<Record<AssetKey, AssetDeclaration>> = {
-  /** The fairway. Differs from the area outside the Playfield, per R14.4. */
-  PLAYFIELD_INTERIOR: { colour: 0x2f7a3f, drawnSize: null },
-  /** A hairline around the Playfield bounds, so the edge is readable where a wall does not mark it. */
-  PLAYFIELD_BORDER: { colour: 0x9fe0ad, drawnSize: 3 },
-  /** Everything the viewport shows beyond the Playfield. R14.4 requires a different fill. */
-  OUTSIDE_PLAYFIELD: { colour: 0x13181d, drawnSize: null },
-  WALL: { colour: 0x6b4f36, drawnSize: null },
-  OBSTACLE: { colour: 0x8a6a4a, drawnSize: null },
-  /** R14.4 requires a fill differing from every wall and every static obstacle. */
+  /** Everything behind the scenery, to the horizon. */
+  SKY: { colour: 0x87ceeb, drawnSize: null },
+  /** Cloud puffs. Size denotes puff height; width derives by a renderer-local aspect ratio. */
+  CLOUD: { colour: 0xffffff, drawnSize: 36 },
+  /** The distant mountain silhouettes. Size denotes peak height above the world floor. */
+  MOUNTAIN_FAR: { colour: 0x9db4cd, drawnSize: 300 },
+  /** The nearer hill silhouettes. Size denotes peak height above the world floor. */
+  MOUNTAIN_NEAR: { colour: 0x5d8a63, drawnSize: 160 },
+  /** Pine trees standing on the near hills. Size denotes tree height. */
+  PINE: { colour: 0x2e5d3a, drawnSize: 64 },
+  /** The Course surface itself, filled from the terrain crest down to the world floor. */
+  TERRAIN_GRASS: { colour: 0x3f9142, drawnSize: null },
+  /** The band of darker ground directly beneath the crest line. Size denotes band depth. */
+  TERRAIN_SOIL: { colour: 0x6b4a2e, drawnSize: 26 },
+  /** The light crest line along the terrain surface. Size denotes band thickness. */
+  TERRAIN_EDGE: { colour: 0x8fd08a, drawnSize: 7 },
+  /** R14.4 requires a fill differing from every other element at its position. */
   HOLE: { colour: 0x0c0e10, drawnSize: null },
+  /** The flag pole rising from the Hole. Size denotes pole height above the surface. */
+  FLAG_POLE: { colour: 0xdadde0, drawnSize: 96 },
+  /** The flag cloth. Size denotes cloth height; length derives by a renderer-local aspect ratio. */
+  FLAG_CLOTH: { colour: 0xe63946, drawnSize: 22 },
+  /** Free-standing static obstacles, distinct from the terrain. Only Arena 4 declares one. */
+  OBSTACLE: { colour: 0x8a6a4a, drawnSize: null },
   BALL_P1: { colour: 0xf6f8fb, drawnSize: null },
   /**
    * R14.7 would distinguish `P2`'s Ball from `P1`'s by an attribute other than position. There is no
@@ -62,12 +90,18 @@ const ASSETS: Readonly<Record<AssetKey, AssetDeclaration>> = {
    * the registry's business and a later reader should not have to invent the colour.
    */
   BALL_P2: { colour: 0xf0b429, drawnSize: null },
+  /** The stickman figure of R14.14. Size denotes total figure height. */
+  STICKMAN: { colour: 0x22262b, drawnSize: 62 },
   /** Thickness only. The length is `AIM_INDICATOR_MIN_LENGTH` from the Constants_Module (R4.31). */
   AIM_INDICATOR: { colour: 0xffe066, drawnSize: 4 },
-  /** Full length of the power bar at `POWER_MAX_PERCENT`, and its thickness through `barThickness`. */
-  POWER_INDICATOR_TRACK: { colour: 0x1c3a26, drawnSize: 220 },
-  POWER_INDICATOR_FILL: { colour: 0xffb703, drawnSize: 18 },
-  PAR_LABEL: { colour: 0xf6f8fb, drawnSize: 34 },
+  /** The unfilled extent of the arc power gauge. Size denotes the arc's radius about the Ball. */
+  POWER_GAUGE_TRACK: { colour: 0x39414b, drawnSize: 56 },
+  /** The filled extent of the arc power gauge. Size denotes the arc band's thickness. */
+  POWER_GAUGE_FILL: { colour: 0xffb703, drawnSize: 11 },
+  /** HUD chip plate of R14.15. Size denotes chip height; width follows the label text. */
+  CHIP_BACKGROUND: { colour: 0x101418, drawnSize: 46 },
+  /** HUD chip label text. Size denotes text height in world units. */
+  CHIP_TEXT: { colour: 0xf6f8fb, drawnSize: 24 },
 };
 
 /** R16.8 - the Renderer obtains every colour palette value by Asset_Key lookup and by no other means. */

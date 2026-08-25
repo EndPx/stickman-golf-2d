@@ -143,6 +143,11 @@ export function main(): void {
       powerPercent: input.powerPercent(),
       // R14.5, R14.11 - the sole Player is always the Active_Player (R1.4).
       isActivePlayer: true,
+      // R14.14 - the stickman stands at the Ball only while it rests, and vanishes the instant a Shot
+      // is fired.
+      showStickman: match.status === 'BALL_AT_REST',
+      // R14.15 - the Strokes chip mirrors what overlay-p1-arena-N-strokes shows.
+      strokesThisArena: match.strokes,
     });
 
     window.requestAnimationFrame(frame);
