@@ -37,7 +37,7 @@ import {
 import type { ArenaDefinition } from '../../shared/arenas.ts';
 import type { Vector2 } from '../../shared/geometry.ts';
 import { sampleTerrain } from '../../shared/terrain.ts';
-import { colourFor, drawnSizeFor } from './visuals.ts';
+import { colourFor, drawnSizeFor, fileFor, type AssetKey } from './visuals.ts';
 
 /** Everything the Renderer needs for one frame. */
 export interface RenderState {
@@ -151,6 +151,63 @@ function circleMesh(
   mesh.position.set(centre.x, centre.y, 0);
   mesh.scale.set(radius, radius, 1);
   return mesh;
+}
+
+const textureLoader = new THREE.TextureLoader();
+
+/**
+ * Wraps a procedural fallback in a group that swaps to the Asset_Key's file once it loads (R16.1),
+ * keeping the placeholder if the file is absent or fails (R16.2) - so a missing image can never
+ * blank the element. The returned group is the thing callers position; the fallback is built
+ * centred on the group origin, and `spriteCentreY` lifts the sprite when the fallback anchors at
+ * its base rather than its middle (the stickman and the pines stand, the Ball and clouds float).
+ */
+function withSpriteFallback(
+  key: AssetKey,
+  worldHeight: number,
+  renderOrder: number,
+  buildFallback: () => THREE.Object3D,
+  spriteCentreY = 0,
+): THREE.Group {
+  const actor = new THREE.Group();
+  const fallback = buildFallback();
+  actor.add(fallback);
+
+  const file = fileFor(key);
+  if (file === null) {
+    return actor;
+  }
+
+  const spriteMaterial = new THREE.MeshBasicMaterial({
+    transparent: true,
+    depthTest: false,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+  const sprite = new THREE.Mesh(UNIT_SQUARE, spriteMaterial);
+  sprite.renderOrder = renderOrder;
+  sprite.position.y = spriteCentreY;
+  sprite.visible = false;
+  actor.add(sprite);
+
+  textureLoader.load(
+    file,
+    (texture) => {
+      texture.colorSpace = THREE.SRGBColorSpace;
+      const image = texture.image;
+      const aspect = image.width / image.height;
+      spriteMaterial.map = texture;
+      sprite.scale.set(worldHeight * aspect, worldHeight, 1);
+      sprite.visible = true;
+      fallback.visible = false;
+    },
+    undefined,
+    () => {
+      // R16.2 - load failure keeps the procedural placeholder; nothing else changes.
+    },
+  );
+
+  return actor;
 }
 
 /** An isoceles triangle mesh, base centred on the given x at the given base y, apex up. */
@@ -350,13 +407,29 @@ export function createRenderer(container: HTMLElement): Renderer {
   actors.renderOrder = LAYER_AIM;
   scene.add(actors);
 
-  const ball = circleMesh({ x: 0, y: 0 }, BALL_RADIUS, colourFor('BALL_P1'), LAYER_BALL);
-  actors.add(ball);
+  const ballActor = withSpriteFallback(
+    'BALL_P1',
+    BALL_RADIUS * 2,
+    LAYER_BALL,
+    () => circleMesh({ x: 0, y: 0 }, BALL_RADIUS, colourFor('BALL_P1'), LAYER_BALL),
+  );
+  actors.add(ballActor);
 
-  const stickman = buildStickman(colourFor('STICKMAN'), LAYER_STICKMAN);
-  stickman.scale.set(drawnSizeFor('STICKMAN'), drawnSizeFor('STICKMAN'), 1);
-  stickman.visible = false;
-  actors.add(stickman);
+  // The stickman stands on the group origin, so its centred sprite rides half a height up.
+  const stickmanHeight = drawnSizeFor('STICKMAN');
+  const stickmanActor = withSpriteFallback(
+    'STICKMAN',
+    stickmanHeight,
+    LAYER_STICKMAN,
+    () => {
+      const procedural = buildStickman(colourFor('STICKMAN'), LAYER_STICKMAN);
+      procedural.scale.set(stickmanHeight, stickmanHeight, 1);
+      return procedural;
+    },
+    stickmanHeight / 2,
+  );
+  stickmanActor.visible = false;
+  actors.add(stickmanActor);
 
   const aimIndicator = new THREE.Mesh(UNIT_SQUARE, flatMaterial(colourFor('AIM_INDICATOR')));
   aimIndicator.renderOrder = LAYER_AIM;
@@ -415,23 +488,28 @@ export function createRenderer(container: HTMLElement): Renderer {
     const pineCount = Math.floor(span / pineSpacing);
     for (let index = 0; index < pineCount; index += 1) {
       const height = drawnSizeFor('PINE') * (0.75 + ((index * 37) % 25) / 100);
-      pines.add(
-        triangleMesh(spanMin + index * pineSpacing, 0, height * 0.32, height, colourFor('PINE'), LAYER_SCENERY_NEAR + 1),
+      const pineActor = withSpriteFallback(
+        'PINE',
+        height,
+        LAYER_SCENERY_NEAR + 1,
+        () => triangleMesh(0, 0, height * 0.32, height, colourFor('PINE'), LAYER_SCENERY_NEAR + 1),
+        height / 2,
       );
+      pineActor.position.set(spanMin + index * pineSpacing, 0, 0);
+      pines.add(pineActor);
     }
 
     const cloudStations = [0.08, 0.24, 0.47, 0.66, 0.88];
     const cloudHeights = [430, 500, 455, 520, 470];
     for (const [index, station] of cloudStations.entries()) {
       const puffHeight = drawnSizeFor('CLOUD');
-      const cloud = circleMesh(
-        { x: spanMin + (station ?? 0.5) * span, y: cloudHeights[index] ?? 480 },
-        puffHeight / 2,
-        colourFor('CLOUD'),
-        LAYER_CLOUDS,
-      );
-      cloud.scale.set(puffHeight * CLOUD_ASPECT, puffHeight, 1);
-      clouds.add(cloud);
+      const cloudActor = withSpriteFallback('CLOUD', puffHeight, LAYER_CLOUDS, () => {
+        const puff = circleMesh({ x: 0, y: 0 }, puffHeight / 2, colourFor('CLOUD'), LAYER_CLOUDS);
+        puff.scale.set(puffHeight * CLOUD_ASPECT, puffHeight, 1);
+        return puff;
+      });
+      cloudActor.position.set(spanMin + (station ?? 0.5) * span, cloudHeights[index] ?? 480, 0);
+      clouds.add(cloudActor);
     }
   }
 
@@ -603,13 +681,13 @@ export function createRenderer(container: HTMLElement): Renderer {
     }
     placeCamera(state.ballPosition, state.arena.courseWidth);
 
-    ball.position.set(state.ballPosition.x, state.ballPosition.y, 0);
+    ballActor.position.set(state.ballPosition.x, state.ballPosition.y, 0);
 
     // R14.14 - the stickman stands at the Ball's ground contact point while the token reads
     // BALL_AT_REST, and is omitted the moment the Ball is in motion.
-    stickman.visible = state.showStickman;
+    stickmanActor.visible = state.showStickman;
     if (state.showStickman) {
-      stickman.position.set(state.ballPosition.x, state.ballPosition.y - BALL_RADIUS, 0);
+      stickmanActor.position.set(state.ballPosition.x, state.ballPosition.y - BALL_RADIUS, 0);
     }
 
     // R14.5 - anchored at the Ball centre, no shorter than AIM_INDICATOR_MIN_LENGTH, oriented along

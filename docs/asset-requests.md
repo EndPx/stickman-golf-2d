@@ -104,7 +104,9 @@ and one warm accent. A designer replacing these values changes `client/src/visua
 - **Location of use:** A circle of `BALL_RADIUS` at the Ball's simulated position.
 - **Dimensions and format:** n/a - colour palette value; a 32x32 PNG golf ball would suit
 - **Current placeholder:** `#f6f8fb`
-- **Status:** REQUESTED
+- **Fulfilled by:** `client/public/assets/ball.png`, a self-generated GDI+ sprite (shaded sphere with
+  dimples) - placeholder-grade art wearing a real file, replaceable by anything better at the same path.
+- **Status:** SUPPLIED
 
 ### BALL_P2
 
@@ -186,7 +188,8 @@ Scenery layering per the reference image: sky, clouds, distant mountains, nearer
 - **Location of use:** High band above the mountains. Declared size is puff height.
 - **Dimensions and format:** n/a - colour palette value; soft-edged 128x64 PNG sprites would suit
 - **Current placeholder:** `#ffffff`
-- **Status:** REQUESTED
+- **Fulfilled by:** `client/public/assets/cloud.png`, a self-generated GDI+ sprite (soft multi-lobe).
+- **Status:** SUPPLIED
 
 ### MOUNTAIN_FAR
 
@@ -210,7 +213,8 @@ Scenery layering per the reference image: sky, clouds, distant mountains, nearer
 - **Location of use:** Marched across the whole span. Declared size is tree height.
 - **Dimensions and format:** n/a - colour palette value; a 64x64 PNG tree sprite would suit
 - **Current placeholder:** `#2e5d3a`
-- **Status:** REQUESTED
+- **Fulfilled by:** `client/public/assets/pine.png`, a self-generated GDI+ sprite (three-tier conifer).
+- **Status:** SUPPLIED
 
 ### TERRAIN_GRASS
 
@@ -260,7 +264,9 @@ Scenery layering per the reference image: sky, clouds, distant mountains, nearer
 - **Dimensions and format:** n/a - colour palette value; a drawn stickman with a club, 64x64 PNG,
   would replace the procedural figure wholesale
 - **Current placeholder:** `#22262b`, 62 world units tall
-- **Status:** REQUESTED
+- **Fulfilled by:** `client/public/assets/stickman.png`, a self-generated GDI+ sprite (capped golfer
+  with club). A drawn replacement at the same path swaps in with no code change.
+- **Status:** SUPPLIED
 
 ### POWER_GAUGE_TRACK
 

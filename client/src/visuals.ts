@@ -56,19 +56,27 @@ interface AssetDeclaration {
    * here would be a second source of truth (R2.3). Which dimension a size denotes is stated per entry.
    */
   readonly drawnSize: number | null;
+  /**
+   * Asset file served from the client's public directory, when one exists.
+   *
+   * R16.1's file reference, restored for the keys that have one. Optional: a key without a file draws
+   * its procedural placeholder (R16.2), and a file that fails to load falls back to the same, so a
+   * missing image can never blank the game.
+   */
+  readonly file?: string;
 }
 
 const ASSETS: Readonly<Record<AssetKey, AssetDeclaration>> = {
   /** Everything behind the scenery, to the horizon. */
   SKY: { colour: 0x87ceeb, drawnSize: null },
   /** Cloud puffs. Size denotes puff height; width derives by a renderer-local aspect ratio. */
-  CLOUD: { colour: 0xffffff, drawnSize: 36 },
+  CLOUD: { colour: 0xffffff, drawnSize: 36, file: 'assets/cloud.png' },
   /** The distant mountain silhouettes. Size denotes peak height above the world floor. */
   MOUNTAIN_FAR: { colour: 0x9db4cd, drawnSize: 300 },
   /** The nearer hill silhouettes. Size denotes peak height above the world floor. */
   MOUNTAIN_NEAR: { colour: 0x5d8a63, drawnSize: 160 },
   /** Pine trees standing on the near hills. Size denotes tree height. */
-  PINE: { colour: 0x2e5d3a, drawnSize: 64 },
+  PINE: { colour: 0x2e5d3a, drawnSize: 64, file: 'assets/pine.png' },
   /** The Course surface itself, filled from the terrain crest down to the world floor. */
   TERRAIN_GRASS: { colour: 0x3f9142, drawnSize: null },
   /** The band of darker ground directly beneath the crest line. Size denotes band depth. */
@@ -83,7 +91,7 @@ const ASSETS: Readonly<Record<AssetKey, AssetDeclaration>> = {
   FLAG_CLOTH: { colour: 0xe63946, drawnSize: 22 },
   /** Free-standing static obstacles, distinct from the terrain. Only Arena 4 declares one. */
   OBSTACLE: { colour: 0x8a6a4a, drawnSize: null },
-  BALL_P1: { colour: 0xf6f8fb, drawnSize: null },
+  BALL_P1: { colour: 0xf6f8fb, drawnSize: null, file: 'assets/ball.png' },
   /**
    * R14.7 would distinguish `P2`'s Ball from `P1`'s by an attribute other than position. There is no
    * second Player in the delivered scope, so nothing draws this. It is declared because the palette is
@@ -91,7 +99,7 @@ const ASSETS: Readonly<Record<AssetKey, AssetDeclaration>> = {
    */
   BALL_P2: { colour: 0xf0b429, drawnSize: null },
   /** The stickman figure of R14.14. Size denotes total figure height. */
-  STICKMAN: { colour: 0x22262b, drawnSize: 62 },
+  STICKMAN: { colour: 0x22262b, drawnSize: 62, file: 'assets/stickman.png' },
   /** Thickness only. The length is `AIM_INDICATOR_MIN_LENGTH` from the Constants_Module (R4.31). */
   AIM_INDICATOR: { colour: 0xffe066, drawnSize: 4 },
   /** The unfilled extent of the arc power gauge. Size denotes the arc's radius about the Ball. */
@@ -107,6 +115,15 @@ const ASSETS: Readonly<Record<AssetKey, AssetDeclaration>> = {
 /** R16.8 - the Renderer obtains every colour palette value by Asset_Key lookup and by no other means. */
 export function colourFor(key: AssetKey): number {
   return ASSETS[key].colour;
+}
+
+/**
+ * R16.1 - the asset file bound to an Asset_Key, or `null` when the key draws its procedural
+ * placeholder. The path is relative to the client's public root, so it is also the URL path the
+ * dev server and the preview build both serve.
+ */
+export function fileFor(key: AssetKey): string | null {
+  return ASSETS[key].file ?? null;
 }
 
 /**
