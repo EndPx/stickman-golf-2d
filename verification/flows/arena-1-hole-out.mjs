@@ -20,26 +20,27 @@ import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 const transcriptPath = join(here, 'arena-1-hole-out.ndjson');
 
-// Harness lessons so far, all recorded in verification/defects.md. Every objective that carried a
-// fill-inputs clause bifurcated down to its Navigate clause; the A-1 probe - the one objective that
-// ever executed in full - was three short "Then" sentences with one simple action each, run with
-// exactly these flags and no others. This flow needs no fill clause anyway: the defaults are aim 0
-// and power 50, which is precisely the witness shot, so the objective below is the A-1 shape.
+// Harness lessons so far, all recorded in verification/defects.md. Nine runs isolate the pattern:
+// only --url with --mode testing and --assertion-mode dom reaches the agent step loop; and every
+// objective carrying a Navigate clause - whatever its grammar - bifurcated onto that clause alone.
+// This objective therefore carries no Navigate clause at all: --url opens ?arena=1 (its stated job
+// is the first step's start URL), and the objective is pure actions on the page it finds there.
 const objective = [
-  'Navigate to http://localhost:4173/?arena=1 .',
-  'Then press the Space key exactly once and wait until the element with data-testid overlay-status reads IN_HOLE .',
+  'Press the Space key exactly once and wait until the element with data-testid overlay-status reads IN_HOLE .',
   'Then read and report the text content of the elements with data-testid overlay-status , overlay-p1-strokes , overlay-p1-hole-out and overlay-anomaly-count .',
   // R15.17 - a non-zero anomaly count fails the flow, same as any other assertion.
   'The test passes only if overlay-status reads IN_HOLE , overlay-p1-strokes reads 1 , overlay-p1-hole-out reads HOLED_OUT_BY_CAPTURE and overlay-anomaly-count reads 0 .',
 ].join(' ');
 
-// The A-1 probe's flag set, unchanged: headless Chrome, plain NDJSON output, no mode overrides.
+// The only flag set that reaches the agent step loop on the current cloud configuration.
 const args = [
   'run',
   objective,
+  '--url', 'http://localhost:4173/?arena=1',
   '--max-steps', '15',
   '--timeout', '420',
-  '--headless',
+  '--assertion-mode', 'dom',
+  '--mode', 'testing',
   '--agent',
 ];
 
