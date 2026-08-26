@@ -16,9 +16,11 @@ import {
   MAX_STROKES_PER_ARENA,
 } from '../../shared/constants.ts';
 import {
+  ARENAS,
   PLAYABLE_ARENA_NUMBERS,
   getArena,
   isPlayableArenaNumber,
+  nextPlayableArenaNumber,
   type ArenaNumber,
 } from '../../shared/arenas.ts';
 import {
@@ -88,7 +90,12 @@ export function anomalyCount(state: MatchState): number {
  * without giving either a second source of truth.
  */
 export function strokesByArenaForDisplay(state: MatchState): ReadonlyMap<number, number> {
-  const merged = new Map(state.strokesByArena);
+  // Every declared Arena is present, zero-defaulted, so the task 13 guarantee - unplayed Arenas
+  // expose 0 - is a property of the exposed map itself rather than of each reader's fallback.
+  const merged = new Map<number, number>(ARENAS.map((arena) => [arena.number, 0]));
+  for (const [arena, strokes] of state.strokesByArena) {
+    merged.set(arena, strokes);
+  }
   merged.set(state.arenaNumber, state.strokes);
   return merged;
 }
@@ -217,16 +224,62 @@ export function shotPrecondition(state: MatchState): ShotRejectionReason | null 
  * fires the next Shot, so no extra Agent_Step is spent, and an observer has unlimited time to read the token.
  */
 function acknowledgeTerminalToken(state: MatchState): MatchState {
-  if (state.holeOut !== 'NOT_HOLED_OUT') {
-    // Holed out, by capture or by the Stroke cap. There is no next turn in this Arena.
-    return state;
-  }
   if (state.status !== 'IN_HOLE' && state.status !== 'OUT_OF_BOUNDS') {
     return state;
   }
   // R5.10's first condition - the Ball has already been placed at its pre-shot position by the engine on
   // the step the out-of-bounds condition was satisfied - and now its second.
   return { ...state, status: 'BALL_AT_REST' };
+}
+
+/**
+ * Task 13 - the local Arena advance and the Match completion, as one state update each.
+ *
+ * The advance is deliberately **not** part of the step that latches the hole-out: R5.9 holds the
+ * terminal token until the Player acts, precisely so a polling verifier can read it, and an advance
+ * on the latching step would replace `IN_HOLE` with the next Arena's `BALL_AT_REST` in the same
+ * update it was set. Instead the held token is the thing the Player acknowledges, and the
+ * acknowledgement - the same space press that would have begun the next turn anyway - is where the
+ * Course moves. No extra Agent_Step is spent, and the aim and power the Input_Controller reset to
+ * defaults on the completing step are exactly what the next Shot in the new Arena fires with.
+ *
+ * R13.3 - the completed Arena's Stroke count joins the retained per-Arena record. R13.4 - the
+ * running total gains it, staying the sum over completed Arenas only. The new Arena begins at its
+ * declared spawn with zero Strokes, a clear hole-out field and a `BALL_AT_REST` token (R5.15's
+ * starting shape, again). On the last Arena the same acknowledgement completes the Match instead:
+ * R1.24 sets the phase to `MATCH_COMPLETE` and the result to `P1`, and the per-Arena record and
+ * total stand with zeros for every Arena not played.
+ */
+function advanceCourse(state: MatchState): MatchState {
+  const retained = new Map(state.strokesByArena);
+  retained.set(state.arenaNumber, state.strokes);
+  const runningTotal = state.runningTotal + state.strokes;
+  const nextNumber = nextPlayableArenaNumber(state.arenaNumber);
+
+  if (nextNumber === null) {
+    return {
+      ...state,
+      strokesByArena: retained,
+      runningTotal,
+      matchPhase: 'MATCH_COMPLETE',
+      result: 'P1',
+      lastRejection: 'NONE',
+    };
+  }
+
+  const nextArena = getArena(nextNumber);
+  return {
+    ...state,
+    arenaNumber: nextNumber,
+    collision: createArenaCollision(nextArena),
+    ball: createBallAtRest(nextArena.spawn),
+    status: 'BALL_AT_REST',
+    strokes: 0,
+    strokesByArena: retained,
+    runningTotal,
+    holeOut: 'NOT_HOLED_OUT',
+    lastRejection: 'NONE',
+  };
 }
 
 /**
@@ -239,6 +292,22 @@ export function prepareShot(state: MatchState): {
   readonly state: MatchState;
   readonly context: ShotContext;
 } {
+  // A latched hole-out - by capture or by the Stroke cap - ends the Arena. Acknowledging it advances
+  // the Course, or completes the Match on the last Arena, and the returned context carries whatever
+  // precondition the new state holds: `null` in a fresh Arena, so the same press fires its first Shot,
+  // or `MATCH_COMPLETE` on the finished Course, so further presses are refused.
+  if (state.holeOut !== 'NOT_HOLED_OUT') {
+    const advanced = advanceCourse(state);
+    return {
+      state: advanced,
+      context: {
+        collision: advanced.collision,
+        ball: advanced.ball,
+        precondition: shotPrecondition(advanced),
+      },
+    };
+  }
+
   const acknowledged = acknowledgeTerminalToken(state);
   return {
     state: acknowledged,

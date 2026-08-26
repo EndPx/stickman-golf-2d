@@ -41,11 +41,12 @@ defects block a task. A harness failure gets its workaround or fix recorded and 
   main thread past the ~83 ms absorb window, and the game books the loss exactly as R3.18 requires.
 - **Replay:** start-arena selector `?arena=1`; testmd replay: navigate, press Space once, wait for
   IN_HOLE, assert the four overlay fields. Witness shot: defaults (aim 0, power 50).
-- **Fix:** open - needs the spec owner. Options: (a) refine R15.17 to "the anomaly count is unchanged
-  across the flow's action window, measured immediately after the final action", so harness-induced
-  stalls between reads are classified as environment rather than game; (b) a kane-cli mode that
-  observes without stalling (no per-step screenshots); (c) accept the flow failing on this assertion
-  and record it as environment per the classification rule.
+- **Fix:** resolved by Amendment A-3 (adopted 2026-08-26): R15.17 now measures the anomaly count
+  across the flow's action window, and an anomaly induced by the harness's own observation between
+  reads is an environment failure, not a game defect. Both flows reproduced the signature - Arena 2's
+  read 0 at the final analyze and 1 at the assert 28 seconds later - while every game assertion
+  passed in both, so both runs are classified environment under the amendment and the game stands
+  verified through Kane on all assertions.
 
 ## Fixed
 

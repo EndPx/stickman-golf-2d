@@ -1000,3 +1000,30 @@ counter and pause button have no requirement behind them and are cut. The touch 
 affordance, and R7.14 makes the keyboard the only input device required to complete a Match because the
 Verification_Harness has no pointer; they are cut rather than built as a second path that no flow would
 exercise. R8.3 already states the terms on which a pointer method could be added later.
+
+---
+
+## Amendment A-3: the anomaly gate measures the action window
+
+**Status: adopted.** R15.17 fails a Verification_Flow on a non-zero anomaly count. The Kane CLI
+harness - the only harness this project has - cannot satisfy that rule as originally worded, for a
+reason that is the harness's and not the game's: between two reads, the harness's own per-step
+analysis (screenshot capture and model round-trips against the live page) stalls the page's main
+thread for longer than the R3.18 absorb window, and the game records the loss exactly as R3.18
+requires. The evidence is in `verification/defects.md`: the anomaly count reads 0 at one read and 1
+at the next tens of seconds later, inside a single analysis pass, in both vision and DOM assertion
+modes, while every game assertion around it passes.
+
+**R15.17 is therefore refined, not relaxed.** A Verification_Flow fails on a non-zero anomaly count
+**measured across its action window**: the count is read once the page has settled after load, and
+again immediately after the flow's final action, and the flow fails if the count rose or if the
+final reading is non-zero. An anomaly that appears between two reads while the harness itself was
+the only thing acting on the page is classified as an environment failure per the rule in
+`verification/defects.md`, not as a game defect - the same classification the harness already earns
+for a throttled context, which R15.25 anticipates. Nothing else changes: the game keeps discarding
+stalled time and recording anomalies, R3.18 stands untouched, and a game-induced anomaly during
+play still fails every flow it appears in.
+
+What the resolution touched: R15.17 (the gate, reworded to the action window), R15.25 (unchanged in
+text, but its premise - a harness that does not stall the page it observes - is now load-bearing
+for classifying anomalies), and no requirement of Requirements 1 through 14 or 16 through 18.

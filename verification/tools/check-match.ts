@@ -24,6 +24,7 @@ import {
   prepareShot,
   resolveStartArena,
   stepMatch,
+  strokesByArenaForDisplay,
   type MatchState,
 } from '../../client/src/game.ts';
 import { createReporter } from './shot-helpers.ts';
@@ -153,11 +154,38 @@ console.log('');
   const held = stepMatch(stepMatch(stepMatch(match).state).state).state;
   report(held.status === 'IN_HOLE', 'R5.9 - IN_HOLE is held across later steps', held.status);
 
-  // R11.3 - a further Shot in the same Arena is refused because the Player is already Holed_Out.
-  const afterHoleOut = fire(match, 0, 70);
-  report(afterHoleOut.lastRejection === 'ALREADY_HOLED_OUT', 'a Shot after holing out is refused with ALREADY_HOLED_OUT', afterHoleOut.lastRejection);
-  report(afterHoleOut.strokes === 1, 'a refused Shot counts no Stroke', String(afterHoleOut.strokes));
-  report(afterHoleOut.status === 'IN_HOLE', 'a refused Shot leaves the token untouched', afterHoleOut.status);
+  // Task 13 - acknowledging the held token advances the Course as one state update: Arena 2 begins
+  // at its spawn, clean, with Arena 1's Stroke retained and totalled.
+  const advanced = prepareShot(match).state;
+  const arena2 = getArena(2);
+  report(advanced.arenaNumber === 2, 'acknowledging Arena 1 IN_HOLE advances to Arena 2', String(advanced.arenaNumber));
+  report(
+    advanced.ball.position.x === arena2.spawn.x && advanced.ball.position.y === arena2.spawn.y,
+    "the Ball sits at Arena 2's declared spawn point",
+    `(${String(advanced.ball.position.x)}, ${String(advanced.ball.position.y)})`,
+  );
+  report(
+    advanced.status === 'BALL_AT_REST' &&
+      advanced.strokes === 0 &&
+      advanced.holeOut === 'NOT_HOLED_OUT' &&
+      advanced.lastRejection === 'NONE',
+    'the new Arena starts clean - BALL_AT_REST, zero Strokes, clear latch',
+    `${advanced.status}, ${String(advanced.strokes)}, ${advanced.holeOut}`,
+  );
+  report(
+    advanced.strokesByArena.get(1) === 1 && advanced.runningTotal === 1,
+    'R13.3, R13.4 - Arena 1 Stroke retained per Arena and added to the running total',
+    `arena 1: ${String(advanced.strokesByArena.get(1))}, total: ${String(advanced.runningTotal)}`,
+  );
+
+  // The same acknowledgement fires the next Shot: the context prepareShot returned is live, so one
+  // press both advances and launches in the new Arena.
+  const firedInTwo = fire(match, 40, 100);
+  report(
+    firedInTwo.arenaNumber === 2 && firedInTwo.status === 'BALL_MOVING' && firedInTwo.strokes === 1,
+    'the acknowledging press fires Arena 2 first Shot',
+    `arena ${String(firedInTwo.arenaNumber)}, ${firedInTwo.status}, ${String(firedInTwo.strokes)} strokes`,
+  );
 }
 
 // -- R5.13: a Shot while the Ball is moving is refused --------------------------------------------
@@ -258,35 +286,79 @@ console.log('');
 {
   let match = createMatch(null);
   // Aim straight up at low power: it can never reach the Hole, so the cap decides.
+  let capped: MatchState | null = null;
   for (let shotNumber = 1; shotNumber <= MAX_STROKES_PER_ARENA + 2; shotNumber += 1) {
     const before = match;
-    match = settle(fire(match, 90, 10)).state;
-    if (before.holeOut !== 'NOT_HOLED_OUT') {
-      // Already capped: the Shot must have been refused and nothing may have changed.
+    if (before.holeOut !== 'NOT_HOLED_OUT' && capped === null) {
+      // Capped, in Arena 1. Observed through prepareShot alone - the bare acknowledgement, before the
+      // same press goes on to fire Arena 2's first Shot.
+      capped = before;
+      const advanced = prepareShot(before).state;
       report(
-        match.strokes === before.strokes && match.lastRejection === 'ALREADY_HOLED_OUT',
-        `R6.10 - Shot ${String(shotNumber)} after the cap is refused and counts nothing`,
-        `${String(match.strokes)} strokes, ${match.lastRejection}`,
+        advanced.arenaNumber === 2 &&
+          advanced.strokes === 0 &&
+          advanced.strokesByArena.get(1) === MAX_STROKES_PER_ARENA &&
+          advanced.runningTotal === MAX_STROKES_PER_ARENA &&
+          advanced.holeOut === 'NOT_HOLED_OUT',
+        'acknowledging the Stroke cap advances to Arena 2 with Arena 1 retained',
+        `arena ${String(advanced.arenaNumber)}, strokes ${String(advanced.strokes)}, retained ${String(advanced.strokesByArena.get(1))}, total ${String(advanced.runningTotal)}`,
       );
     }
+    match = settle(fire(match, 90, 10)).state;
   }
 
+  const cappedState = capped ?? match;
   report(
-    match.strokes === MAX_STROKES_PER_ARENA,
+    cappedState.strokes === MAX_STROKES_PER_ARENA,
     'R13.5 - the Stroke count records exactly MAX_STROKES_PER_ARENA',
-    String(match.strokes),
+    String(cappedState.strokes),
   );
   report(
-    match.holeOut === 'HOLED_OUT_BY_STROKE_CAP',
+    cappedState.holeOut === 'HOLED_OUT_BY_STROKE_CAP',
     'R13.16 - the latch reads HOLED_OUT_BY_STROKE_CAP',
-    match.holeOut,
+    cappedState.holeOut,
   );
   report(
-    match.status !== 'IN_HOLE',
+    cappedState.status !== 'IN_HOLE',
     'R13.15 - a cap-out never reaches IN_HOLE',
-    match.status,
+    cappedState.status,
   );
-  report(anomalyCount(match) === 0, 'capping out records no anomaly', String(anomalyCount(match)));
+  report(
+    anomalyCount(cappedState) === 0,
+    'capping out records no anomaly',
+    String(anomalyCount(cappedState)),
+  );
+}
+
+// -- task 13, R1.24: the last Arena's acknowledgement completes the Match -------------------------
+
+console.log('');
+
+{
+  let match = createMatch('2');
+  match = settle(fire(match, 40, 100)).state;
+  report(match.status === 'IN_HOLE', 'Arena 2 holes out at the witness shot', match.status);
+
+  const completed = prepareShot(match).state;
+  report(completed.matchPhase === 'MATCH_COMPLETE', 'R1.24 - the phase reads MATCH_COMPLETE', completed.matchPhase);
+  report(completed.result === 'P1', 'R1.24 - the result reads P1', String(completed.result));
+  report(
+    completed.strokesByArena.get(2) === 1 && completed.runningTotal === 1,
+    'R13.3, R13.4 - Arena 2 Stroke retained and totalled on completion',
+    `arena 2: ${String(completed.strokesByArena.get(2))}, total: ${String(completed.runningTotal)}`,
+  );
+  report(
+    strokesByArenaForDisplay(completed).get(1) === 0,
+    'unplayed Arenas expose 0 in the per-Arena record the overlay shows',
+    String(strokesByArenaForDisplay(completed).get(1)),
+  );
+
+  const afterComplete = fire(completed, 40, 100);
+  report(
+    afterComplete.lastRejection === 'MATCH_COMPLETE' && afterComplete.strokes === 1,
+    'a Shot on the completed Match is refused with MATCH_COMPLETE',
+    `${afterComplete.lastRejection}, ${String(afterComplete.strokes)} strokes`,
+  );
 }
 
 // -- R5.12: every accepted Shot terminates -------------------------------------------------------
