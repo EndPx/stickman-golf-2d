@@ -127,11 +127,25 @@ export function main(): void {
       match = withDiscardAnomaly(match, discardedSteps);
     },
   });
-  clock.start();
+
+  // The clock is seeded on start(), so whatever gap precedes the first tick is charged to the game as
+  // discarded simulated time (R3.18). Starting it during module evaluation charged the page load
+  // itself - compile, first paint, font settle - as a stall, and every cold load began with an
+  // anomaly already on the books. Seeding on the first rendered frame starts the count from an idle
+  // main thread instead. R3.2's rate guarantee concerns the steady state and is untouched: the
+  // interval runs at SIMULATION_HZ from wherever its first tick lands.
+  let clockStarted = false;
+  function startClockOnFirstFrame(): void {
+    if (!clockStarted) {
+      clockStarted = true;
+      clock.start();
+    }
+  }
 
   // R14.9 - drawing is decoupled from SIMULATION_HZ and draws the most recently completed Simulation_Step
   // with no interpolation and no extrapolation.
   function frame(): void {
+    startClockOnFirstFrame();
     // R7.20 - reconciles a value written to either number input by any means, including a write that fired
     // no event at all. Done before anything reads the values.
     input.refresh();
