@@ -241,7 +241,7 @@ Consequence for this plan: task 1 is no longer a gate to run and has no stop rul
 
 **◄── MILESTONE 1: agent-drivable Arena 1 reached here**
 
-- [ ] 12. First Kane CLI flow — Arena 1 solo, and the defect log
+- [x] 12. First Kane CLI flow — Arena 1 solo, and the defect log
   - Build the harness conventions under `verification/flows/`, one flow per file, and write the Arena 1 flow: fresh browser instance per run, browsing context kept visible, keyboard input only, state read only from overlay text content with no page script evaluated. It drives the standalone client permanently — there is no server to re-point it at later.
   - **Step accounting.** A Shot costs three dispatched Agent_Steps — set the aim in `overlay-aim-input`, set the power in `overlay-power-input`, press space to fire — plus one bounded poll of the Status_Token at `STATUS_POLL_INTERVAL_MILLISECONDS` up to `STATUS_POLL_TIMEOUT_SECONDS`, which is one further Agent_Step. Four per Shot. With one navigation and one final read, a Par 2 clear of Arena 1 costs **10 of the 15 available**, leaving room for exactly one extra Shot. Count every dispatched step, reads included.
   - Pass when the flow's Player's hole-out field reads `HOLED_OUT_BY_CAPTURE` within budget and within `MAX_STROKES_PER_ARENA`. Fail on budget exhaustion, a stroke-cap hole-out, a poll timeout, an out-of-set field value, an absent declared field identifier for the current phase, or a non-zero anomaly count. On a non-environment failure, append a replayable entry to `verification/defects.md`, recording the start-arena selector value, the step sequence and every shot's aim and power.
@@ -250,7 +250,7 @@ Consequence for this plan: task 1 is no longer a gate to run and has no stop rul
   - Estimate: **45 min**
   - _Requirements: R15.1–R15.4, R15.6–R15.9, R15.12–R15.14, R15.16, R15.17, R15.21–R15.29, R15.31–R15.34_
 
-- [ ] 13. Arena 2 playable and verified — bank shots, the open edge, Match completion
+- [x] 13. Arena 2 playable and verified — bank shots, the open edge, Match completion
   - Tune the Arena 2 wall so the Hole is unreachable in a straight line and reachable off at least one reflection, then write the Arena 2 flow against it. Confirm `WALL_RESTITUTION` produces a bank shot that holes out inside the step budget. The flow selects Arena 2 through the start-arena selector of R1.25, which is permanent; nothing here is temporary scaffolding.
   - **Arena 2 carries the single open Playfield edge**, per the revised R2.19 and D-18. This is what makes `OUT_OF_BOUNDS` reachable through play at all in the delivered scope: with Arenas 3, 4 and 5 cut and Arena 1 fully walled, there is no other Arena left to carry it, and the frozen Status_Token value would otherwise go dead. Punishing an over-hit suits the Arena 2 lesson rather than fighting it.
   - Local Arena advance and totals: on the Arena 1 hole-out, advance to Arena 2 as one state update, place the Ball at Arena 2's spawn point, zero Arena 2's strokes, clear hole-out, reset aim and power, and add Arena 1's strokes to the running total, retaining the per-Arena value addressed by Arena number. On the Arena 2 hole-out set the phase to `MATCH_COMPLETE` and the result to `P1` per R1.24, and expose every per-Arena stroke field with 0 for the Arenas not played.
@@ -259,7 +259,7 @@ Consequence for this plan: task 1 is no longer a gate to run and has no stop rul
   - Estimate: **50 min**
   - _Requirements: R2.8, R2.19, R3.6, R4.7, R6.4, R6.5, R6.6, R6.8, R1.6, R1.7, R1.16, R1.24, R13.3, R13.4, R13.10, R13.17, R9.17, R9.19, R15.12, R15.13_
 
-- [ ] 14. Physics tuning and two-arena playtest
+- [x] 14. Physics tuning and two-arena playtest
   - Play Arenas 1 and 2 by hand and tune `FRICTION_PER_STEP`, `REST_SPEED_THRESHOLD`, `REST_DEBOUNCE_STEPS`, `HOLE_CAPTURE_MAX_SPEED` and `WALL_RESTITUTION` for a decisive stop and a fair capture. Both Arenas share one constant set; per-Arena tuning is forbidden.
   - **This task carries the reachability hand-check that R2.14 and R2.17 were going to validate at load time, now for Arenas 1 and 2 only.** Confirm by hand, per Arena, that the Hole is reachable within Par plus one shots from the spawn point using only grid angles and grid power values. Record the witness shot sequence per Arena in `verification/defects.md` alongside the flow entries, so a later regression has something to compare against. R2.17's corridor check has no subject in the delivered scope; Arena 3 is descoped.
   - Re-run both flows after the final constant change and record the results. Confirm a full two-Arena run reaches `MATCH_COMPLETE` with the result reading `P1` and every visual resolved to its constant-driven placeholder.
