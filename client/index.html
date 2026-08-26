@@ -114,6 +114,12 @@
       roots below are populated by the client; the overlay is built in task 10 and the canvas is
       attached by the Renderer in task 8.
     -->
+    <!--
+      The menu owns this root only when the URL carries no start-arena selector; with ?arena=N the
+      game boots straight into the Match and this stays empty. It sits above the playfield and the
+      overlay in z-order but never writes to either.
+    -->
+    <div id="menu-root"></div>
     <div id="playfield-root"></div>
     <div id="overlay-root"></div>
     <script type="module" src="./src/main.ts"></script>

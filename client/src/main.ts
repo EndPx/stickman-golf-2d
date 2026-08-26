@@ -12,6 +12,7 @@ import { createFixedStepClock } from './clock.ts';
 import { createRenderer } from './renderer.ts';
 import { createInputController } from './input.ts';
 import { createOverlay } from './overlay.ts';
+import { createMenu } from './menu.ts';
 import {
   anomalyCount,
   applyShotResult,
@@ -159,4 +160,17 @@ export function main(): void {
   });
 }
 
-main();
+// Two entry paths. A URL with the R1.25 start-arena selector boots straight into the Match - that is
+// the path every Verification_Flow takes, and the menu never sits in front of it. A bare URL shows
+// the main menu, whose Solo Play simply navigates to /?arena=1 and lands in the first path.
+if (new URLSearchParams(window.location.search).has('arena')) {
+  main();
+} else {
+  const menuMount = document.getElementById('menu-root');
+  if (menuMount === null) {
+    // No menu root means no menu to show; boot into Arena 1 rather than leave a blank page.
+    window.location.replace('/?arena=1');
+  } else {
+    createMenu(menuMount);
+  }
+}
